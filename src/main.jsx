@@ -2,38 +2,48 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
 import styled, { createGlobalStyle } from 'styled-components';
+import splashMobile from './assets/splash-mobile.png';
+import splashDesktop from './assets/splash-desktop.png';
 
 const theme = {
   color: {
-    background: '#fff8f5',
-    surface: '#fff8f5',
-    surfaceLow: '#fbf2ed',
-    surfaceContainer: '#f5ece7',
-    surfaceHigh: '#efe6e2',
+    background: '#f7efe9',
+    surface: '#fffaf7',
+    surfaceLow: '#f3e8e1',
+    surfaceHigh: '#ead8cb',
     white: '#ffffff',
-    text: '#1e1b18',
-    muted: '#54433e',
-    outline: '#dac1ba',
-    primary: '#944931',
-    primarySoft: '#ffdbd0',
-    primaryMid: '#d67d61',
-    primaryDark: '#551905',
-    secondary: '#4f6443',
-    secondarySoft: '#d2eac0',
-    tertiarySoft: '#ece2c9',
-    tertiaryText: '#4c4634',
-    star: '#e29b31',
-    dark: '#111413',
+    text: '#211a16',
+    muted: '#68534a',
+    outline: '#d9bfb1',
+    primary: '#a55837',
+    primaryDark: '#7f3f22',
+    primarySoft: '#f7d8ca',
+    secondary: '#355e57',
+    secondarySoft: '#d5ebe4',
+    accent: '#f1c15d',
+    danger: '#9d3b31',
+    success: '#2b7a5f',
+    heroShade: 'rgba(17, 13, 10, 0.38)',
+    dark: '#12110f',
   },
   shadow: {
-    soft: '0 4px 20px rgba(0, 0, 0, 0.04)',
-    lift: '0 18px 50px rgba(84, 67, 62, 0.14)',
+    soft: '0 16px 38px rgba(64, 34, 23, 0.08)',
+    lift: '0 26px 70px rgba(39, 29, 24, 0.14)',
   },
 };
 
 const API_ROOT = 'https://www.themealdb.com/api/json/v1/1';
-const PROFILE_KEY = 'recipe-card-app:profile-id';
-const DIET_KEY = 'recipe-card-app:diet';
+const SPLASH_KEY = 'recipe-card-app:last-splash-dismissed-at';
+const DEFAULT_AVATAR =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+      <rect width="160" height="160" rx="80" fill="#f7d8ca"/>
+      <circle cx="80" cy="62" r="28" fill="#a55837"/>
+      <path d="M32 136c9-25 28-38 48-38s39 13 48 38" fill="#a55837"/>
+    </svg>
+  `);
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase =
@@ -52,14 +62,6 @@ const categoryOptions = [
   ['starter', 'Starter'],
   ['dessert', 'Dessert'],
 ];
-
-function getDietLabel(value) {
-  return dietOptions.find(([key]) => key === value)?.[1] || 'Eat everything';
-}
-
-function getCategoryLabel(value) {
-  return categoryOptions.find(([key]) => key === value)?.[1] || 'Any course';
-}
 
 const meatWords = [
   'beef',
@@ -117,20 +119,12 @@ const animalProductWords = [
   'feta',
 ];
 
-function getProfileId() {
-  const storedId = window.localStorage.getItem(PROFILE_KEY);
-  if (storedId) return storedId;
-  const nextId = crypto.randomUUID();
-  window.localStorage.setItem(PROFILE_KEY, nextId);
-  return nextId;
+function getDietLabel(value) {
+  return dietOptions.find(([key]) => key === value)?.[1] || 'Eat everything';
 }
 
-function getStoredDiet() {
-  return window.localStorage.getItem(DIET_KEY) || 'everything';
-}
-
-function storeDiet(diet) {
-  window.localStorage.setItem(DIET_KEY, diet);
+function getCategoryLabel(value) {
+  return categoryOptions.find(([key]) => key === value)?.[1] || 'Any course';
 }
 
 function getIngredients(meal) {
@@ -240,41 +234,96 @@ async function fetchRandomRecipe(diet) {
   return null;
 }
 
-async function fetchCookbook(profileId) {
+async function fetchProfile(userId) {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function upsertProfile(payload) {
+  if (!supabase) throw new Error('Supabase is not configured.');
+
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .upsert(payload, { onConflict: 'id' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function fetchCookbook(userId) {
   if (!supabase) return [];
+
   const { data, error } = await supabase
     .from('recipe_cookbook')
     .select('recipe')
-    .eq('profile_id', profileId)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
   return data.map((row) => row.recipe);
 }
 
-async function saveCookbookRecipe(profileId, recipe) {
+async function saveCookbookRecipe(userId, recipe) {
   if (!supabase) throw new Error('Supabase is not configured.');
+
   const { error } = await supabase.from('recipe_cookbook').upsert(
     {
-      profile_id: profileId,
+      user_id: userId,
       meal_id: recipe.idMeal,
       recipe,
     },
-    { onConflict: 'profile_id,meal_id' }
+    { onConflict: 'user_id,meal_id' }
   );
 
   if (error) throw error;
 }
 
-async function removeCookbookRecipe(profileId, mealId) {
+async function removeCookbookRecipe(userId, mealId) {
   if (!supabase) throw new Error('Supabase is not configured.');
+
   const { error } = await supabase
     .from('recipe_cookbook')
     .delete()
-    .eq('profile_id', profileId)
+    .eq('user_id', userId)
     .eq('meal_id', mealId);
 
   if (error) throw error;
+}
+
+function getRedirectUrl() {
+  return import.meta.env.VITE_SUPABASE_REDIRECT_URL || window.location.origin;
+}
+
+function getAvatarUrl(path) {
+  if (!supabase || !path) return '';
+  const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+function sanitizeFileName(name) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, '-');
+}
+
+function getRecoveryTypeFromHash() {
+  const hash = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  const params = new URLSearchParams(hash);
+  return params.get('type');
+}
+
+function rememberSplashDismissed() {
+  window.localStorage.setItem(SPLASH_KEY, String(Date.now()));
 }
 
 function Icon({ children, filled = false }) {
@@ -286,6 +335,8 @@ function Icon({ children, filled = false }) {
 }
 
 function App() {
+  const [appStage, setAppStage] = useState('splash');
+  const [view, setView] = useState('discover');
   const [searchMode, setSearchMode] = useState('ingredient');
   const [searchInput, setSearchInput] = useState('salmon');
   const [searchCategory, setSearchCategory] = useState('all');
@@ -294,52 +345,164 @@ function App() {
     query: 'salmon',
     category: 'all',
   });
-  const [view, setView] = useState('recipe');
-  const [profileId, setProfileId] = useState('');
   const [diet, setDiet] = useState('everything');
-  const [draftDiet, setDraftDiet] = useState('everything');
   const [meal, setMeal] = useState(null);
   const [cookbook, setCookbook] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cookbookLoading, setCookbookLoading] = useState(false);
   const [error, setError] = useState('');
   const [cookbookError, setCookbookError] = useState('');
-  const [settingsMessage, setSettingsMessage] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState({
+    displayName: '',
+    diet: 'everything',
+  });
+  const [settingsStatus, setSettingsStatus] = useState('');
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState('');
+  const [authForm, setAuthForm] = useState({
+    displayName: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+  });
   const viewContentRef = useRef(null);
+
+  const user = session?.user || null;
+  const ingredientItems = useMemo(() => getIngredients(meal), [meal]);
+  const directionSteps = useMemo(() => getSteps(meal), [meal]);
+  const heroImage = meal?.strMealThumb;
+  const title = meal?.strMeal || 'Search for a recipe';
+  const category = meal?.strCategory || 'Live recipe';
+  const cuisine = meal?.strArea || 'TheMealDB';
+  const avatarPreview = profile?.avatar_path ? getAvatarUrl(profile.avatar_path) : DEFAULT_AVATAR;
   const isSaved = meal ? cookbook.some((recipe) => recipe.idMeal === meal.idMeal) : false;
-  const isSettingsDirty = draftDiet !== diet;
+  const settingsDirty =
+    settingsDraft.displayName !== (profile?.display_name || '') ||
+    settingsDraft.diet !== (profile?.diet_preference || 'everything');
 
   useEffect(() => {
-    setProfileId(getProfileId());
-    const storedDiet = getStoredDiet();
-    setDiet(storedDiet);
-    setDraftDiet(storedDiet);
+    let isMounted = true;
+
+    async function bootstrapAuth() {
+      if (!supabase) {
+        setLoading(false);
+        return;
+      }
+
+      const recoveryType = getRecoveryTypeFromHash();
+      if (recoveryType === 'recovery') {
+        setAppStage('main');
+        setView('settings');
+        setAuthMode('reset');
+        setAuthMessage('Set a new password for your account.');
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (!isMounted) return;
+
+      if (sessionError) {
+        setAuthError(sessionError.message);
+      } else {
+        setSession(data.session);
+      }
+
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        setSession(nextSession);
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
+
+    let cleanup;
+    bootstrapAuth().then((nextCleanup) => {
+      cleanup = nextCleanup;
+    });
+
+    return () => {
+      isMounted = false;
+      cleanup?.();
+    };
   }, []);
 
   useEffect(() => {
-    if (!profileId) return;
     let isCurrent = true;
 
-    async function loadCookbook() {
+    async function loadProfileAndCookbook() {
+      if (!user) {
+        setProfile(null);
+        setCookbook([]);
+        setDiet('everything');
+        setSettingsDraft({ displayName: '', diet: 'everything' });
+        setCookbookLoading(false);
+        return;
+      }
+
+      setProfileLoading(true);
       setCookbookLoading(true);
       setCookbookError('');
 
       try {
-        const savedRecipes = await fetchCookbook(profileId);
-        if (isCurrent) setCookbook(savedRecipes);
+        let nextProfile;
+
+        try {
+          nextProfile = await fetchProfile(user.id);
+        } catch (fetchError) {
+          if (fetchError.code === 'PGRST116') {
+            nextProfile = await upsertProfile({
+              id: user.id,
+              email: user.email,
+              display_name:
+                user.user_metadata?.display_name ||
+                user.email?.split('@')[0] ||
+                'Food Card cook',
+              diet_preference: 'everything',
+            });
+          } else {
+            throw fetchError;
+          }
+        }
+
+        const savedRecipes = await fetchCookbook(user.id);
+
+        if (!isCurrent) return;
+
+        setProfile(nextProfile);
+        setDiet(nextProfile?.diet_preference || 'everything');
+        setSettingsDraft({
+          displayName: nextProfile?.display_name || '',
+          diet: nextProfile?.diet_preference || 'everything',
+        });
+        setCookbook(savedRecipes);
       } catch (storageError) {
-        if (isCurrent) setCookbookError(storageError.message || 'Could not load cookbook.');
+        if (!isCurrent) return;
+        setCookbookError(storageError.message || 'Could not load your cookbook.');
+        setProfile(null);
       } finally {
-        if (isCurrent) setCookbookLoading(false);
+        if (!isCurrent) return;
+        setProfileLoading(false);
+        setCookbookLoading(false);
       }
     }
 
-    loadCookbook();
+    loadProfileAndCookbook();
 
     return () => {
       isCurrent = false;
     };
-  }, [profileId]);
+  }, [user]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -365,7 +528,9 @@ function App() {
               : ` in ${getCategoryLabel(activeSearch.category).toLowerCase()}`;
           setError(
             `No${courseText} recipes found for "${activeSearch.query}" with your ${getDietLabel(diet).toLowerCase()} setting. Try ${
-              activeSearch.mode === 'ingredient' ? 'chicken, beef, avocado, or pasta' : 'Italian, Mexican, Indian, or Canadian'
+              activeSearch.mode === 'ingredient'
+                ? 'chicken, beef, avocado, or pasta'
+                : 'Italian, Mexican, Indian, or Canadian'
             }.`
           );
           return;
@@ -388,24 +553,28 @@ function App() {
     };
   }, [activeSearch, diet]);
 
-  const ingredientItems = useMemo(() => getIngredients(meal), [meal]);
-  const directionSteps = useMemo(() => getSteps(meal), [meal]);
-  const heroImage = meal?.strMealThumb;
-  const title = meal?.strMeal || 'Search for a recipe';
-  const category = meal?.strCategory || 'Live recipe';
-  const cuisine = meal?.strArea || 'TheMealDB';
+  function scrollToContent() {
+    window.requestAnimationFrame(() => {
+      viewContentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function handleEnterApp() {
+    rememberSplashDismissed();
+    setAppStage('main');
+  }
 
   function handleSubmit(event) {
     event.preventDefault();
     const nextQuery = searchInput.trim();
-    if (nextQuery) {
-      setActiveSearch({ mode: searchMode, query: nextQuery, category: searchCategory });
-      setView('recipe');
-    }
+    if (!nextQuery) return;
+
+    setActiveSearch({ mode: searchMode, query: nextQuery, category: searchCategory });
+    setView('discover');
   }
 
   async function handleDiscoverRandom() {
-    setView('recipe');
+    setView('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     setLoading(true);
     setError('');
@@ -414,7 +583,9 @@ function App() {
       const randomMeal = await fetchRandomRecipe(diet);
       if (!randomMeal) {
         setMeal(null);
-        setError(`No random recipes matched your ${getDietLabel(diet).toLowerCase()} setting. Try another preference.`);
+        setError(
+          `No random recipes matched your ${getDietLabel(diet).toLowerCase()} setting. Try another preference.`
+        );
         return;
       }
       setMeal(randomMeal);
@@ -432,11 +603,11 @@ function App() {
   }
 
   async function handleSaveRecipe() {
-    if (!meal || isSaved) return;
+    if (!meal || isSaved || !user) return;
 
     try {
-      await saveCookbookRecipe(profileId, meal);
-      setCookbook([meal, ...cookbook]);
+      await saveCookbookRecipe(user.id, meal);
+      setCookbook((currentCookbook) => [meal, ...currentCookbook]);
       setCookbookError('');
     } catch (storageError) {
       setCookbookError(storageError.message || 'Could not save recipe to Supabase.');
@@ -444,9 +615,13 @@ function App() {
   }
 
   async function handleRemoveSavedRecipe(idMeal) {
+    if (!user) return;
+
     try {
-      await removeCookbookRecipe(profileId, idMeal);
-      setCookbook(cookbook.filter((recipe) => recipe.idMeal !== idMeal));
+      await removeCookbookRecipe(user.id, idMeal);
+      setCookbook((currentCookbook) =>
+        currentCookbook.filter((recipe) => recipe.idMeal !== idMeal)
+      );
       setCookbookError('');
     } catch (storageError) {
       setCookbookError(storageError.message || 'Could not remove recipe from Supabase.');
@@ -455,32 +630,232 @@ function App() {
 
   function handleOpenSavedRecipe(recipe) {
     setMeal(recipe);
-    setView('recipe');
+    setView('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  function handleDietChange(nextDiet) {
-    setDraftDiet(nextDiet);
-    setSettingsMessage('');
-  }
-
-  function handleSaveSettings() {
-    setDiet(draftDiet);
-    storeDiet(draftDiet);
-    setSettingsMessage('Settings saved.');
   }
 
   function handleViewChange(nextView) {
     setView(nextView);
-    if (nextView !== 'settings') {
-      setSettingsMessage('');
+    setSettingsStatus('');
+    setAvatarMessage('');
+    if (nextView === 'settings' && !user) {
+      setAuthMode((currentMode) => (currentMode === 'reset' ? currentMode : 'login'));
     }
-    window.requestAnimationFrame(() => {
-      viewContentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollToContent();
+  }
+
+  function handleAuthFieldChange(field, value) {
+    setAuthForm((currentForm) => ({ ...currentForm, [field]: value }));
+    setAuthError('');
+    setAuthMessage('');
+  }
+
+  function resetAuthForm() {
+    setAuthForm({
+      displayName: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
     });
   }
 
-  function renderRecipePage() {
+  function switchAuthMode(nextMode) {
+    setAuthMode(nextMode);
+    setAuthError('');
+    setAuthMessage('');
+    resetAuthForm();
+  }
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault();
+    if (!supabase) {
+      setAuthError('Add your Supabase environment variables first.');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+    setAuthMessage('');
+
+    try {
+      if (authMode === 'login') {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: authForm.email,
+          password: authForm.password,
+        });
+
+        if (signInError) throw signInError;
+        setAuthMessage('Welcome back.');
+        setView('settings');
+      }
+
+      if (authMode === 'register') {
+        if (authForm.password !== authForm.confirmPassword) {
+          throw new Error('Passwords do not match.');
+        }
+
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: authForm.email,
+          password: authForm.password,
+          options: {
+            data: {
+              display_name: authForm.displayName.trim(),
+            },
+            emailRedirectTo: getRedirectUrl(),
+          },
+        });
+
+        if (signUpError) throw signUpError;
+
+        if (data.user && data.session) {
+          await upsertProfile({
+            id: data.user.id,
+            email: data.user.email,
+            display_name: authForm.displayName.trim() || data.user.email?.split('@')[0],
+            diet_preference: 'everything',
+          });
+        }
+
+        if (data.session) {
+          setAuthMessage('Account created.');
+        } else {
+          setAuthMessage('Account created. Check your email to confirm your registration.');
+        }
+        resetAuthForm();
+      }
+
+      if (authMode === 'forgot') {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(authForm.email, {
+          redirectTo: getRedirectUrl(),
+        });
+
+        if (resetError) throw resetError;
+        setAuthMessage('Password recovery email sent.');
+      }
+
+      if (authMode === 'reset') {
+        if (authForm.password !== authForm.confirmPassword) {
+          throw new Error('Passwords do not match.');
+        }
+
+        const { error: updateError } = await supabase.auth.updateUser({
+          password: authForm.password,
+        });
+
+        if (updateError) throw updateError;
+
+        resetAuthForm();
+        setAuthError('');
+        setAuthMessage('Password updated. You can now sign in.');
+        setAuthMode('login');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    } catch (submitError) {
+      setAuthError(submitError.message || 'Could not complete authentication.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleSignOut() {
+    if (!supabase) return;
+
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      setAuthError(signOutError.message || 'Could not sign out.');
+      return;
+    }
+
+    setView('discover');
+    setSettingsStatus('');
+    setAvatarMessage('');
+  }
+
+  function handleSettingsDraftChange(field, value) {
+    setSettingsDraft((currentDraft) => ({ ...currentDraft, [field]: value }));
+    setSettingsStatus('');
+  }
+
+  async function handleSaveSettings() {
+    if (!user || !supabase) return;
+
+    setSettingsLoading(true);
+    setSettingsStatus('');
+
+    try {
+      const payload = {
+        id: user.id,
+        email: user.email,
+        display_name: settingsDraft.displayName.trim() || user.email?.split('@')[0] || 'Food Card cook',
+        diet_preference: settingsDraft.diet,
+        avatar_path: profile?.avatar_path || null,
+      };
+
+      const [profileResult, authResult] = await Promise.all([
+        upsertProfile(payload),
+        supabase.auth.updateUser({
+          data: {
+            display_name: payload.display_name,
+          },
+        }),
+      ]);
+
+      if (authResult.error) throw authResult.error;
+
+      setProfile(profileResult);
+      setDiet(profileResult.diet_preference || 'everything');
+      setSettingsDraft({
+        displayName: profileResult.display_name || '',
+        diet: profileResult.diet_preference || 'everything',
+      });
+      setSettingsStatus('Settings saved.');
+    } catch (saveError) {
+      setSettingsStatus(saveError.message || 'Could not save settings.');
+    } finally {
+      setSettingsLoading(false);
+    }
+  }
+
+  async function handleAvatarUpload() {
+    if (!user || !supabase || !avatarFile) return;
+
+    setAvatarUploading(true);
+    setAvatarMessage('');
+
+    try {
+      const extension = avatarFile.name.split('.').pop() || 'png';
+      const nextPath = `${user.id}/${Date.now()}-${sanitizeFileName(
+        avatarFile.name.replace(new RegExp(`\\.${extension}$`), '')
+      )}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(nextPath, avatarFile, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const nextProfile = await upsertProfile({
+        id: user.id,
+        email: user.email,
+        display_name: profile?.display_name || user.user_metadata?.display_name || user.email,
+        diet_preference: profile?.diet_preference || 'everything',
+        avatar_path: nextPath,
+      });
+
+      setProfile(nextProfile);
+      setAvatarFile(null);
+      setAvatarMessage('Avatar updated.');
+    } catch (uploadError) {
+      setAvatarMessage(uploadError.message || 'Could not upload avatar.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  function renderDiscoverPage() {
     return (
       <>
         <Hero>{heroImage ? <HeroImage src={heroImage} alt={title} /> : <HeroEmpty />}</Hero>
@@ -489,7 +864,7 @@ function App() {
           <TitleCard>
             <TitleMeta>
               <Pill>{getDietLabel(diet)}</Pill>
-              <Rating aria-label="Rated 4.5 out of 5">
+              <Rating aria-label="Recipe source">
                 <span>★★★★★</span>
                 <small>{loading ? 'Loading live recipe' : `Live from ${cuisine}`}</small>
               </Rating>
@@ -535,6 +910,11 @@ function App() {
               </SearchRow>
               {error ? <SearchMessage role="status">{error}</SearchMessage> : null}
             </SearchPanel>
+            {!user ? (
+              <InfoBanner>
+                Create an account in Settings to save your cookbook, preferences, and avatar in Supabase.
+              </InfoBanner>
+            ) : null}
             {cookbookError ? <SearchMessage role="status">{cookbookError}</SearchMessage> : null}
             <Stats>
               <Stat>
@@ -553,14 +933,24 @@ function App() {
                 <strong>{ingredientItems.length}</strong>
               </Stat>
             </Stats>
-            <PrimaryButton
-              type="button"
-              onClick={handleSaveRecipe}
-              disabled={!meal || isSaved || !profileId}
-            >
-              <BookIcon />
-              {isSaved ? 'Saved to cookbook' : 'Save to cookbook'}
-            </PrimaryButton>
+            <ActionRow>
+              <PrimaryButton
+                type="button"
+                onClick={handleSaveRecipe}
+                disabled={!meal || isSaved || !user}
+              >
+                <BookIcon />
+                {!user
+                  ? 'Sign in to save'
+                  : isSaved
+                    ? 'Saved to cookbook'
+                    : 'Save to cookbook'}
+              </PrimaryButton>
+              <SecondaryButton type="button" onClick={handleDiscoverRandom} disabled={loading}>
+                <CompassIcon />
+                Surprise me
+              </SecondaryButton>
+            </ActionRow>
           </TitleCard>
 
           <ViewContent ref={viewContentRef}>
@@ -618,11 +1008,15 @@ function App() {
             Cookbook <small>({cookbook.length} saved)</small>
           </SectionTitle>
           <StandaloneIntro>
-            Open your saved recipes here without mixing them into the live search results page.
+            Every signed-in user gets their own Supabase-backed cookbook storage.
           </StandaloneIntro>
         </StandaloneHeader>
-        {cookbookError ? <SearchMessage role="status">{cookbookError}</SearchMessage> : null}
-        {cookbookLoading ? (
+
+        {!user ? (
+          <EmptyState>
+            Sign in or register in Settings to create a personal cookbook synced to your account.
+          </EmptyState>
+        ) : cookbookLoading || profileLoading ? (
           <EmptyState>Loading your Supabase cookbook...</EmptyState>
         ) : cookbook.length ? (
           <SavedGrid>
@@ -637,10 +1031,7 @@ function App() {
                     </small>
                   </span>
                 </button>
-                <RemoveButton
-                  type="button"
-                  onClick={() => handleRemoveSavedRecipe(recipe.idMeal)}
-                >
+                <RemoveButton type="button" onClick={() => handleRemoveSavedRecipe(recipe.idMeal)}>
                   Remove
                 </RemoveButton>
               </SavedCard>
@@ -655,39 +1046,226 @@ function App() {
     );
   }
 
+  function renderAuthCard() {
+    const titleByMode = {
+      login: 'Welcome back',
+      register: 'Create your account',
+      forgot: 'Password recovery',
+      reset: 'Set a new password',
+    };
+
+    return (
+      <SettingsCard>
+        <h2>{titleByMode[authMode]}</h2>
+        <p>
+          Sign in to save your cookbook, preferences, and avatar in your own Supabase-backed
+          account.
+        </p>
+        <AuthForm onSubmit={handleAuthSubmit}>
+          {authMode === 'register' ? (
+            <Field>
+              <span>Display name</span>
+              <TextInput
+                value={authForm.displayName}
+                onChange={(event) => handleAuthFieldChange('displayName', event.target.value)}
+                placeholder="Chef Eugene"
+              />
+            </Field>
+          ) : null}
+
+          {authMode !== 'reset' ? (
+            <Field>
+              <span>Email</span>
+              <TextInput
+                type="email"
+                value={authForm.email}
+                onChange={(event) => handleAuthFieldChange('email', event.target.value)}
+                placeholder="you@example.com"
+                required
+              />
+            </Field>
+          ) : null}
+
+          {authMode !== 'forgot' ? (
+            <Field>
+              <span>{authMode === 'reset' ? 'New password' : 'Password'}</span>
+              <TextInput
+                type="password"
+                value={authForm.password}
+                onChange={(event) => handleAuthFieldChange('password', event.target.value)}
+                placeholder="••••••••"
+                required
+              />
+            </Field>
+          ) : null}
+
+          {authMode === 'register' || authMode === 'reset' ? (
+            <Field>
+              <span>Confirm password</span>
+              <TextInput
+                type="password"
+                value={authForm.confirmPassword}
+                onChange={(event) => handleAuthFieldChange('confirmPassword', event.target.value)}
+                placeholder="••••••••"
+                required
+              />
+            </Field>
+          ) : null}
+
+          {authError ? <InlineError role="alert">{authError}</InlineError> : null}
+          {authMessage ? <InlineSuccess role="status">{authMessage}</InlineSuccess> : null}
+
+          <PrimaryButton type="submit" disabled={authLoading}>
+            <UserIcon />
+            {authLoading
+              ? 'Working...'
+              : authMode === 'login'
+                ? 'Sign in'
+                : authMode === 'register'
+                  ? 'Register'
+                  : authMode === 'forgot'
+                    ? 'Send recovery email'
+                    : 'Save new password'}
+          </PrimaryButton>
+        </AuthForm>
+
+        <LinkRow>
+          {authMode !== 'login' ? (
+            <InlineLinkButton type="button" onClick={() => switchAuthMode('login')}>
+              Back to sign in
+            </InlineLinkButton>
+          ) : null}
+          {authMode === 'login' ? (
+            <>
+              <InlineLinkButton type="button" onClick={() => switchAuthMode('register')}>
+                Create account
+              </InlineLinkButton>
+              <InlineLinkButton type="button" onClick={() => switchAuthMode('forgot')}>
+                Forgot password?
+              </InlineLinkButton>
+            </>
+          ) : null}
+        </LinkRow>
+      </SettingsCard>
+    );
+  }
+
   function renderSettingsPage() {
     return (
       <StandaloneContent ref={viewContentRef}>
         <StandaloneHeader>
           <SectionTitle>Settings</SectionTitle>
           <StandaloneIntro>
-            Choose your diet preference here, then save it before returning to recipe search.
+            Manage account access, save your preferences, and personalize your avatar here.
           </StandaloneIntro>
         </StandaloneHeader>
-        <SettingsCard>
-          <h2>Diet preference</h2>
-          <p>Recipe search and random discovery will only show meals that match this setting.</p>
-          <DietGrid>
-            {dietOptions.map(([value, label]) => (
-              <DietButton
-                key={value}
-                type="button"
-                onClick={() => handleDietChange(value)}
-                $active={draftDiet === value}
-              >
-                {label}
-              </DietButton>
-            ))}
-          </DietGrid>
-          <SettingsActions>
-            <PrimaryButton type="button" onClick={handleSaveSettings} disabled={!isSettingsDirty}>
-              <SettingsIcon />
-              Save settings
-            </PrimaryButton>
-            {settingsMessage ? <SettingsStatus role="status">{settingsMessage}</SettingsStatus> : null}
-          </SettingsActions>
-        </SettingsCard>
+
+        {!supabase ? (
+          <EmptyState>
+            Add your Supabase environment variables to enable login, password recovery, and user
+            storage.
+          </EmptyState>
+        ) : !user ? (
+          renderAuthCard()
+        ) : (
+          <SettingsStack>
+            <SettingsCard>
+              <SettingsHeader>
+                <AvatarPreview src={avatarPreview} alt={profile?.display_name || user.email} />
+                <div>
+                  <h2>{profile?.display_name || user.user_metadata?.display_name || 'Your profile'}</h2>
+                  <p>{user.email}</p>
+                </div>
+              </SettingsHeader>
+
+              <Field>
+                <span>Display name</span>
+                <TextInput
+                  value={settingsDraft.displayName}
+                  onChange={(event) =>
+                    handleSettingsDraftChange('displayName', event.target.value)
+                  }
+                  placeholder="Chef Eugene"
+                />
+              </Field>
+
+              <Field>
+                <span>Diet preference</span>
+                <DietGrid>
+                  {dietOptions.map(([value, label]) => (
+                    <DietButton
+                      key={value}
+                      type="button"
+                      onClick={() => handleSettingsDraftChange('diet', value)}
+                      $active={settingsDraft.diet === value}
+                    >
+                      {label}
+                    </DietButton>
+                  ))}
+                </DietGrid>
+              </Field>
+
+              <SettingsActions>
+                <PrimaryButton
+                  type="button"
+                  onClick={handleSaveSettings}
+                  disabled={settingsLoading || !settingsDirty}
+                >
+                  <SettingsIcon />
+                  {settingsLoading ? 'Saving...' : 'Save settings'}
+                </PrimaryButton>
+                {settingsStatus ? <InlineSuccess role="status">{settingsStatus}</InlineSuccess> : null}
+              </SettingsActions>
+            </SettingsCard>
+
+            <SettingsCard>
+              <h2>Editable avatar</h2>
+              <p>Upload a profile image to personalize your Food Card account.</p>
+              <Field>
+                <span>Avatar image</span>
+                <TextInput
+                  as="input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => setAvatarFile(event.target.files?.[0] || null)}
+                />
+              </Field>
+              <SettingsActions>
+                <SecondaryButton
+                  type="button"
+                  onClick={handleAvatarUpload}
+                  disabled={!avatarFile || avatarUploading}
+                >
+                  <UploadIcon />
+                  {avatarUploading ? 'Uploading...' : 'Upload avatar'}
+                </SecondaryButton>
+                {avatarMessage ? <InlineSuccess role="status">{avatarMessage}</InlineSuccess> : null}
+              </SettingsActions>
+            </SettingsCard>
+
+            <SettingsCard>
+              <h2>Account</h2>
+              <p>
+                Password recovery is available from the sign-in form if you ever need to regain
+                access to your account.
+              </p>
+              <SecondaryButton type="button" onClick={handleSignOut}>
+                <LogoutIcon />
+                Sign out
+              </SecondaryButton>
+            </SettingsCard>
+          </SettingsStack>
+        )}
       </StandaloneContent>
+    );
+  }
+
+  if (appStage === 'splash') {
+    return (
+      <ThemeProviderWrapper>
+        <GlobalStyle />
+        <SplashScreen onEnter={handleEnterApp} />
+      </ThemeProviderWrapper>
     );
   }
 
@@ -696,24 +1274,18 @@ function App() {
       <GlobalStyle />
       <AppShell>
         <TopBar>
-          <RoundButton aria-label="Go back">
-            <Icon>
-              <path d="M15 18l-6-6 6-6" />
-            </Icon>
-          </RoundButton>
+          <BrandBlock>
+            <BrandDot />
+            <div>
+              <BrandName>Food Card</BrandName>
+              <BrandMeta>Recipes, settings, and cookbook sync</BrandMeta>
+            </div>
+          </BrandBlock>
           <TopActions>
-            <RoundButton aria-label="Share recipe">
-              <Icon>
-                <path d="M8 12h8" />
-                <path d="M13 7l5 5-5 5" />
-                <path d="M18 12H6" />
-              </Icon>
-            </RoundButton>
-            <RoundButton aria-label="Favorite recipe" $active>
-              <Icon filled>
-                <path d="M20.8 4.6c-1.7-1.6-4.4-1.5-6 .2L12 7.7 9.2 4.8c-1.6-1.7-4.3-1.8-6-.2-1.8 1.7-1.8 4.5-.1 6.2L12 20l8.9-9.2c1.7-1.7 1.7-4.5-.1-6.2z" />
-              </Icon>
-            </RoundButton>
+            <ProfilePill type="button" onClick={() => handleViewChange('settings')}>
+              <img src={avatarPreview} alt="" />
+              <span>{user ? profile?.display_name || user.email : 'Sign in'}</span>
+            </ProfilePill>
           </TopActions>
         </TopBar>
 
@@ -721,10 +1293,10 @@ function App() {
           ? renderCookbookPage()
           : view === 'settings'
             ? renderSettingsPage()
-            : renderRecipePage()}
+            : renderDiscoverPage()}
 
         <BottomNav aria-label="Primary">
-          <NavItem type="button" onClick={handleDiscoverRandom} $active={view === 'recipe'}>
+          <NavItem type="button" onClick={() => handleViewChange('discover')} $active={view === 'discover'}>
             <CompassIcon />
             Discover
           </NavItem>
@@ -739,6 +1311,54 @@ function App() {
         </BottomNav>
       </AppShell>
     </ThemeProviderWrapper>
+  );
+}
+
+function SplashScreen({ onEnter }) {
+  return (
+    <SplashShell onClick={onEnter}>
+      <SplashVisual aria-hidden="true" />
+      <SplashOverlay />
+      <SplashContent>
+        <MobileSplashLockup>
+          <SplashCircle>
+            <SplashLogoBadge>Food Card</SplashLogoBadge>
+          </SplashCircle>
+          <SplashWordmark>FOOD CARD</SplashWordmark>
+          <SplashRule />
+          <SplashTagline>Elevate your everyday cooking</SplashTagline>
+          <SplashDots>
+            <span />
+            <span />
+            <span />
+          </SplashDots>
+        </MobileSplashLockup>
+
+        <DesktopSplashLockup>
+          <DesktopIconCard>
+            <UtensilsIcon />
+          </DesktopIconCard>
+          <DesktopTitle>Food Card</DesktopTitle>
+          <DesktopSubtitle>
+            Your thoughtfully curated digital cookbook for every modern kitchen.
+          </DesktopSubtitle>
+          <SplashCta type="button" onClick={onEnter}>
+            Get Started
+            <ArrowRightIcon />
+          </SplashCta>
+          <SyncStatus>
+            <span />
+            Syncing recipes
+          </SyncStatus>
+          <DesktopFootnote>
+            <small>Featured dish</small>
+            <strong>Rustic Heirloom Vegetable Roast</strong>
+          </DesktopFootnote>
+        </DesktopSplashLockup>
+
+        <MobileSplashHint>Tap anywhere to continue</MobileSplashHint>
+      </SplashContent>
+    </SplashShell>
   );
 }
 
@@ -764,7 +1384,7 @@ const GlobalStyle = createGlobalStyle`
     min-width: 320px;
     min-height: 100vh;
     background:
-      radial-gradient(circle at top left, rgba(207, 231, 189, 0.28), transparent 28rem),
+      radial-gradient(circle at top left, rgba(213, 235, 228, 0.35), transparent 30rem),
       ${theme.color.background};
   }
 
@@ -772,33 +1392,99 @@ const GlobalStyle = createGlobalStyle`
     font: inherit;
   }
 
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   img {
     display: block;
     max-width: 100%;
+  }
+
+  a {
+    color: inherit;
   }
 `;
 
 const AppShell = styled.div`
   min-height: 100vh;
-  padding-bottom: 88px;
+  padding-bottom: 90px;
 `;
 
 const TopBar = styled.header`
   position: fixed;
   inset: 0 0 auto;
-  z-index: 10;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 64px;
-  padding: 10px clamp(16px, 5vw, 48px);
-  background: rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(8px);
+  gap: 16px;
+  height: 72px;
+  padding: 12px clamp(16px, 4vw, 40px);
+  background: rgba(255, 250, 247, 0.82);
+  border-bottom: 1px solid rgba(217, 191, 177, 0.35);
+  backdrop-filter: blur(12px);
+`;
+
+const BrandBlock = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+`;
+
+const BrandDot = styled.span`
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, ${theme.color.accent}, ${theme.color.primary});
+  box-shadow: 0 0 0 6px rgba(165, 88, 55, 0.12);
+`;
+
+const BrandName = styled.div`
+  font-family: 'Epilogue', system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 800;
+`;
+
+const BrandMeta = styled.div`
+  color: ${theme.color.muted};
+  font-size: 12px;
 `;
 
 const TopActions = styled.div`
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+`;
+
+const ProfilePill = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(54vw, 280px);
+  padding: 8px 10px 8px 8px;
+  color: ${theme.color.text};
+  background: ${theme.color.white};
+  border: 1px solid rgba(217, 191, 177, 0.62);
+  border-radius: 999px;
+  box-shadow: ${theme.shadow.soft};
+  cursor: pointer;
+
+  img {
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    object-fit: cover;
+  }
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 700;
+  }
 `;
 
 const Svg = styled.svg`
@@ -811,41 +1497,16 @@ const Svg = styled.svg`
   stroke-width: 2;
 `;
 
-const RoundButton = styled.button`
-  display: grid;
-  width: 40px;
-  height: 40px;
-  place-items: center;
-  color: ${({ $active }) => ($active ? theme.color.primary : theme.color.muted)};
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(218, 193, 186, 0.65);
-  border-radius: 999px;
-  box-shadow: ${theme.shadow.soft};
-  cursor: pointer;
-  transition: transform 160ms ease, box-shadow 160ms ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: ${theme.shadow.lift};
-  }
-`;
-
 const Hero = styled.section`
-  height: clamp(360px, 58vw, 600px);
+  height: clamp(360px, 52vw, 620px);
   overflow: hidden;
   background: ${theme.color.dark};
-
-  &::after {
-    content: '';
-    position: absolute;
-  }
 `;
 
 const HeroImage = styled.img`
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center;
   filter: saturate(1.04);
 `;
 
@@ -853,38 +1514,38 @@ const HeroEmpty = styled.div`
   width: 100%;
   height: 100%;
   background:
-    linear-gradient(135deg, rgba(17, 20, 19, 0.82), rgba(148, 73, 49, 0.38)),
+    linear-gradient(135deg, rgba(18, 17, 15, 0.9), rgba(53, 94, 87, 0.55)),
     ${theme.color.dark};
 `;
 
 const Content = styled.main`
   position: relative;
   z-index: 1;
-  width: min(1120px, calc(100% - clamp(32px, 8vw, 96px)));
-  margin: -64px auto 0;
+  width: min(1140px, calc(100% - clamp(32px, 8vw, 96px)));
+  margin: -72px auto 0;
 
   @media (max-width: 640px) {
     width: calc(100% - 24px);
-    margin-top: -54px;
+    margin-top: -56px;
   }
 `;
 
 const StandaloneContent = styled.main`
-  width: min(1120px, calc(100% - clamp(32px, 8vw, 96px)));
-  margin: 104px auto 0;
+  width: min(1080px, calc(100% - clamp(32px, 8vw, 96px)));
+  margin: 108px auto 0;
 
   @media (max-width: 640px) {
     width: calc(100% - 24px);
-    margin-top: 88px;
+    margin-top: 92px;
   }
 `;
 
 const StandaloneHeader = styled.div`
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 `;
 
 const StandaloneIntro = styled.p`
-  max-width: 640px;
+  max-width: 660px;
   margin: 0;
   color: ${theme.color.muted};
   font-size: 15px;
@@ -892,19 +1553,18 @@ const StandaloneIntro = styled.p`
 `;
 
 const TitleCard = styled.article`
-  padding: clamp(18px, 3vw, 28px);
+  padding: clamp(18px, 3vw, 30px);
   background: ${theme.color.white};
-  border: 1px solid rgba(218, 193, 186, 0.48);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.45);
+  border-radius: 10px;
   box-shadow: ${theme.shadow.soft};
 
   h1 {
     max-width: 760px;
-    margin: 10px 0 24px;
+    margin: 12px 0 24px;
     font-family: 'Epilogue', system-ui, sans-serif;
-    font-size: clamp(28px, 5vw, 48px);
-    line-height: 1.15;
-    letter-spacing: 0;
+    font-size: clamp(32px, 5vw, 54px);
+    line-height: 1.08;
   }
 `;
 
@@ -930,7 +1590,7 @@ const Rating = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: ${theme.color.star};
+  color: ${theme.color.accent};
   font-size: 14px;
 
   small {
@@ -942,11 +1602,11 @@ const Rating = styled.div`
 const SearchPanel = styled.form`
   display: grid;
   gap: 10px;
-  margin: 0 0 22px;
+  margin: 0 0 18px;
   padding: 16px;
   background: ${theme.color.surfaceLow};
-  border: 1px solid rgba(218, 193, 186, 0.48);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.44);
+  border-radius: 10px;
 
   label {
     color: ${theme.color.muted};
@@ -962,7 +1622,7 @@ const SearchRow = styled.div`
   grid-template-columns: minmax(130px, 170px) minmax(120px, 150px) 1fr auto;
   gap: 10px;
 
-  @media (max-width: 820px) {
+  @media (max-width: 860px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 
     input,
@@ -971,7 +1631,7 @@ const SearchRow = styled.div`
     }
   }
 
-  @media (max-width: 520px) {
+  @media (max-width: 560px) {
     grid-template-columns: 1fr;
 
     button {
@@ -988,8 +1648,8 @@ const SearchSelect = styled.select`
     linear-gradient(45deg, transparent 50%, ${theme.color.primary} 50%) right 18px center / 7px 7px no-repeat,
     linear-gradient(135deg, ${theme.color.primary} 50%, transparent 50%) right 13px center / 7px 7px no-repeat,
     ${theme.color.white};
-  border: 1px solid rgba(218, 193, 186, 0.85);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.85);
+  border-radius: 10px;
   outline: none;
   appearance: none;
   cursor: pointer;
@@ -998,7 +1658,7 @@ const SearchSelect = styled.select`
 
   &:focus {
     border-color: ${theme.color.secondary};
-    box-shadow: 0 0 0 3px rgba(79, 100, 67, 0.16);
+    box-shadow: 0 0 0 3px rgba(53, 94, 87, 0.16);
   }
 `;
 
@@ -1008,13 +1668,13 @@ const SearchInput = styled.input`
   padding: 0 15px;
   color: ${theme.color.text};
   background: ${theme.color.white};
-  border: 1px solid rgba(218, 193, 186, 0.85);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.85);
+  border-radius: 10px;
   outline: none;
 
   &:focus {
     border-color: ${theme.color.secondary};
-    box-shadow: 0 0 0 3px rgba(79, 100, 67, 0.16);
+    box-shadow: 0 0 0 3px rgba(53, 94, 87, 0.16);
   }
 `;
 
@@ -1028,7 +1688,7 @@ const SearchButton = styled.button`
   color: ${theme.color.white};
   background: ${theme.color.secondary};
   border: 1px solid ${theme.color.secondary};
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 700;
@@ -1048,12 +1708,22 @@ const SearchMessage = styled.p`
   line-height: 1.5;
 `;
 
+const InfoBanner = styled.div`
+  margin-bottom: 18px;
+  padding: 13px 14px;
+  color: ${theme.color.secondary};
+  background: ${theme.color.secondarySoft};
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+`;
+
 const Stats = styled.div`
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   padding: 16px 0 20px;
-  border-block: 1px solid rgba(218, 193, 186, 0.48);
+  border-block: 1px solid rgba(217, 191, 177, 0.42);
 
   @media (min-width: 780px) {
     gap: 16px;
@@ -1068,7 +1738,7 @@ const Stat = styled.div`
   padding: 14px 8px;
   text-align: center;
   background: ${theme.color.surfaceLow};
-  border-radius: 8px;
+  border-radius: 10px;
 
   svg {
     color: ${theme.color.primary};
@@ -1087,19 +1757,25 @@ const Stat = styled.div`
   }
 `;
 
-const PrimaryButton = styled.button`
+const ActionRow = styled.div`
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+`;
+
+const PrimaryButton = styled.button`
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  width: min(100%, 360px);
   min-height: 54px;
-  margin: 22px auto 0;
+  padding: 0 22px;
   color: ${theme.color.white};
   background: ${theme.color.primary};
   border: 1px solid ${theme.color.primaryDark};
   border-radius: 999px;
-  box-shadow: 0 10px 24px rgba(148, 73, 49, 0.22);
+  box-shadow: 0 10px 24px rgba(165, 88, 55, 0.24);
   cursor: pointer;
   font-size: 13px;
   font-weight: 700;
@@ -1114,13 +1790,36 @@ const PrimaryButton = styled.button`
 
   &:disabled {
     cursor: default;
-    opacity: 0.74;
+    opacity: 0.72;
     transform: none;
   }
 `;
 
+const SecondaryButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 0 22px;
+  color: ${theme.color.secondary};
+  background: ${theme.color.white};
+  border: 1px solid rgba(53, 94, 87, 0.3);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.72;
+  }
+`;
+
 const ViewContent = styled.div`
-  scroll-margin-top: 84px;
+  scroll-margin-top: 96px;
 `;
 
 const RecipeGrid = styled.div`
@@ -1129,81 +1828,21 @@ const RecipeGrid = styled.div`
   gap: clamp(28px, 5vw, 56px);
   margin-top: 40px;
 
-  @media (max-width: 820px) {
+  @media (max-width: 860px) {
     grid-template-columns: 1fr;
   }
 `;
 
 const EmptyState = styled.div`
-  margin-top: 40px;
+  margin-top: 24px;
   padding: 28px;
   color: ${theme.color.muted};
   background: ${theme.color.white};
-  border: 1px solid rgba(218, 193, 186, 0.48);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.42);
+  border-radius: 12px;
   box-shadow: ${theme.shadow.soft};
   font-size: 15px;
   line-height: 1.6;
-`;
-
-const SettingsCard = styled.article`
-  padding: 24px;
-  background: ${theme.color.white};
-  border: 1px solid rgba(218, 193, 186, 0.48);
-  border-radius: 8px;
-  box-shadow: ${theme.shadow.soft};
-
-  h2 {
-    margin: 0 0 8px;
-    font-family: 'Epilogue', system-ui, sans-serif;
-    font-size: 20px;
-  }
-
-  p {
-    max-width: 620px;
-    margin: 0 0 18px;
-    color: ${theme.color.muted};
-    font-size: 14px;
-    line-height: 1.6;
-  }
-`;
-
-const SettingsActions = styled.div`
-  display: grid;
-  gap: 12px;
-  margin-top: 22px;
-`;
-
-const SettingsStatus = styled.p`
-  margin: 0;
-  color: ${theme.color.secondary};
-  font-size: 13px;
-  font-weight: 700;
-`;
-
-const DietGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-
-  @media (max-width: 760px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  @media (max-width: 440px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const DietButton = styled.button`
-  min-height: 48px;
-  color: ${({ $active }) => ($active ? theme.color.white : theme.color.secondary)};
-  background: ${({ $active }) => ($active ? theme.color.secondary : theme.color.surfaceLow)};
-  border: 1px solid ${({ $active }) => ($active ? theme.color.secondary : 'rgba(218, 193, 186, 0.85)')};
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
 `;
 
 const SavedGrid = styled.div`
@@ -1211,7 +1850,7 @@ const SavedGrid = styled.div`
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 
-  @media (max-width: 920px) {
+  @media (max-width: 960px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1223,8 +1862,8 @@ const SavedGrid = styled.div`
 const SavedCard = styled.article`
   overflow: hidden;
   background: ${theme.color.white};
-  border: 1px solid rgba(218, 193, 186, 0.48);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.44);
+  border-radius: 12px;
   box-shadow: ${theme.shadow.soft};
 
   > button:first-child {
@@ -1269,8 +1908,8 @@ const RemoveButton = styled.button`
   margin: 0 14px 14px;
   color: ${theme.color.primary};
   background: ${theme.color.surfaceLow};
-  border: 1px solid rgba(218, 193, 186, 0.7);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.7);
+  border-radius: 10px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
@@ -1281,9 +1920,9 @@ const RemoveButton = styled.button`
 const IngredientsPanel = styled.section`
   align-self: start;
 
-  @media (min-width: 821px) {
+  @media (min-width: 861px) {
     position: sticky;
-    top: 88px;
+    top: 92px;
   }
 `;
 
@@ -1293,8 +1932,8 @@ const SectionTitle = styled.h2`
   gap: 8px;
   margin: 0 0 20px;
   font-family: 'Epilogue', system-ui, sans-serif;
-  font-size: clamp(20px, 2.8vw, 25px);
-  line-height: 1.3;
+  font-size: clamp(22px, 2.8vw, 28px);
+  line-height: 1.25;
 
   small {
     color: ${theme.color.muted};
@@ -1316,8 +1955,8 @@ const Ingredient = styled.label`
   min-height: 70px;
   padding: 14px;
   background: ${theme.color.white};
-  border: 1px solid rgba(218, 193, 186, 0.44);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.42);
+  border-radius: 12px;
   cursor: pointer;
   transition: background 160ms ease, transform 160ms ease;
 
@@ -1412,22 +2051,168 @@ const StepImage = styled.img`
   max-height: 260px;
   margin-top: 18px;
   object-fit: cover;
-  border: 1px solid rgba(218, 193, 186, 0.5);
-  border-radius: 8px;
+  border: 1px solid rgba(217, 191, 177, 0.46);
+  border-radius: 12px;
   box-shadow: ${theme.shadow.soft};
+`;
+
+const SettingsStack = styled.div`
+  display: grid;
+  gap: 18px;
+`;
+
+const SettingsCard = styled.article`
+  padding: 24px;
+  background: ${theme.color.white};
+  border: 1px solid rgba(217, 191, 177, 0.44);
+  border-radius: 14px;
+  box-shadow: ${theme.shadow.soft};
+
+  h2 {
+    margin: 0 0 8px;
+    font-family: 'Epilogue', system-ui, sans-serif;
+    font-size: 22px;
+  }
+
+  p {
+    max-width: 680px;
+    margin: 0 0 18px;
+    color: ${theme.color.muted};
+    font-size: 14px;
+    line-height: 1.6;
+  }
+`;
+
+const SettingsHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+
+  p {
+    margin-bottom: 0;
+  }
+`;
+
+const AvatarPreview = styled.img`
+  width: 78px;
+  height: 78px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 3px solid ${theme.color.surfaceLow};
+  box-shadow: ${theme.shadow.soft};
+`;
+
+const Field = styled.label`
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+
+  span {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: ${theme.color.muted};
+  }
+`;
+
+const TextInput = styled.input`
+  width: 100%;
+  min-height: 50px;
+  padding: 12px 14px;
+  color: ${theme.color.text};
+  background: ${theme.color.white};
+  border: 1px solid rgba(217, 191, 177, 0.82);
+  border-radius: 10px;
+  outline: none;
+
+  &:focus {
+    border-color: ${theme.color.secondary};
+    box-shadow: 0 0 0 3px rgba(53, 94, 87, 0.16);
+  }
+`;
+
+const DietGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+
+  @media (max-width: 820px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 500px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const DietButton = styled.button`
+  min-height: 48px;
+  color: ${({ $active }) => ($active ? theme.color.white : theme.color.secondary)};
+  background: ${({ $active }) => ($active ? theme.color.secondary : theme.color.surfaceLow)};
+  border: 1px solid
+    ${({ $active }) => ($active ? theme.color.secondary : 'rgba(217, 191, 177, 0.82)')};
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+`;
+
+const SettingsActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+`;
+
+const AuthForm = styled.form`
+  display: grid;
+  gap: 2px;
+`;
+
+const InlineError = styled.p`
+  margin: 0 0 12px;
+  color: ${theme.color.danger};
+  font-size: 13px;
+  font-weight: 600;
+`;
+
+const InlineSuccess = styled.p`
+  margin: 0;
+  color: ${theme.color.success};
+  font-size: 13px;
+  font-weight: 700;
+`;
+
+const LinkRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+`;
+
+const InlineLinkButton = styled.button`
+  padding: 0;
+  color: ${theme.color.primary};
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
 `;
 
 const BottomNav = styled.nav`
   position: fixed;
   inset: auto 0 0;
-  z-index: 10;
+  z-index: 20;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  height: 76px;
+  height: 78px;
   padding: 8px clamp(10px, 4vw, 28px) max(8px, env(safe-area-inset-bottom));
-  background: rgba(255, 255, 255, 0.95);
-  border-top: 1px solid rgba(218, 193, 186, 0.42);
-  backdrop-filter: blur(8px);
+  background: rgba(255, 250, 247, 0.96);
+  border-top: 1px solid rgba(217, 191, 177, 0.44);
+  backdrop-filter: blur(12px);
 `;
 
 const NavItem = styled.button`
@@ -1435,7 +2220,7 @@ const NavItem = styled.button`
   place-items: center;
   align-content: center;
   gap: 5px;
-  color: ${({ $active }) => ($active ? theme.color.primary : '#8a817b')};
+  color: ${({ $active }) => ($active ? theme.color.primary : '#8d8177')};
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -1448,6 +2233,242 @@ const NavItem = styled.button`
   svg {
     width: 21px;
     height: 21px;
+  }
+`;
+
+const SplashShell = styled.div`
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  color: ${theme.color.white};
+  background: ${theme.color.dark};
+  cursor: pointer;
+  overflow: hidden;
+`;
+
+const SplashVisual = styled.div`
+  position: absolute;
+  inset: 0;
+  background-image: url(${splashMobile});
+  background-size: cover;
+  background-position: center;
+  transform: scale(1.02);
+  filter: saturate(0.98);
+
+  @media (min-width: 900px) {
+    background-image: url(${splashDesktop});
+  }
+`;
+
+const SplashOverlay = styled.div`
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.38)),
+    ${theme.color.heroShade};
+
+  @media (min-width: 900px) {
+    background: rgba(11, 10, 9, 0.2);
+  }
+`;
+
+const SplashContent = styled.div`
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 24px 36px;
+`;
+
+const MobileSplashLockup = styled.div`
+  display: grid;
+  justify-items: center;
+  margin-top: auto;
+
+  @media (min-width: 900px) {
+    display: none;
+  }
+`;
+
+const SplashCircle = styled.div`
+  display: grid;
+  place-items: center;
+  width: 196px;
+  height: 196px;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.24);
+`;
+
+const SplashLogoBadge = styled.div`
+  display: grid;
+  place-items: center;
+  width: 100px;
+  height: 100px;
+  color: ${theme.color.primaryDark};
+  font-family: 'Epilogue', system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+`;
+
+const SplashWordmark = styled.h1`
+  margin: 34px 0 14px;
+  color: ${theme.color.white};
+  font-family: 'Epilogue', system-ui, sans-serif;
+  font-size: clamp(44px, 10vw, 72px);
+  letter-spacing: 0.22em;
+  text-indent: 0.22em;
+  text-shadow: 0 8px 30px rgba(0, 0, 0, 0.34);
+`;
+
+const SplashRule = styled.span`
+  width: 86px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.86);
+  border-radius: 999px;
+`;
+
+const SplashTagline = styled.p`
+  margin: 250px 0 42px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: clamp(20px, 5vw, 28px);
+  font-style: italic;
+  text-align: center;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+`;
+
+const SplashDots = styled.div`
+  display: flex;
+  gap: 10px;
+
+  span {
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.75);
+  }
+
+  span:nth-child(2),
+  span:nth-child(3) {
+    opacity: 0.55;
+  }
+`;
+
+const MobileSplashHint = styled.div`
+  margin-top: 26px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+
+  @media (min-width: 900px) {
+    display: none;
+  }
+`;
+
+const DesktopSplashLockup = styled.div`
+  display: none;
+
+  @media (min-width: 900px) {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    min-height: calc(100vh - 64px);
+    padding-top: 40px;
+  }
+`;
+
+const DesktopIconCard = styled.div`
+  display: grid;
+  place-items: center;
+  width: 140px;
+  height: 140px;
+  margin-bottom: 18px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 28px;
+  backdrop-filter: blur(10px);
+`;
+
+const DesktopTitle = styled.h1`
+  margin: 0;
+  font-family: 'Epilogue', system-ui, sans-serif;
+  font-size: clamp(64px, 7vw, 104px);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  text-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+`;
+
+const DesktopSubtitle = styled.p`
+  max-width: 620px;
+  margin: 14px 0 26px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: clamp(26px, 2vw, 32px);
+  line-height: 1.22;
+  text-align: center;
+`;
+
+const SplashCta = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-width: 286px;
+  min-height: 84px;
+  padding: 0 36px;
+  color: ${theme.color.white};
+  background: ${theme.color.primary};
+  border: 0;
+  border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(77, 37, 20, 0.34);
+  cursor: pointer;
+  font-size: 24px;
+  font-weight: 800;
+
+  &:hover {
+    background: ${theme.color.primaryDark};
+  }
+`;
+
+const SyncStatus = styled.div`
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin-top: 34px;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+
+  span {
+    width: 82px;
+    height: 6px;
+    border-radius: 999px;
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0 42%, rgba(255, 255, 255, 0.34) 42% 100%);
+  }
+`;
+
+const DesktopFootnote = styled.div`
+  position: absolute;
+  inset: auto auto 52px 60px;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+
+  small {
+    color: rgba(255, 255, 255, 0.54);
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  strong {
+    font-size: 18px;
+    font-weight: 700;
   }
 `;
 
@@ -1512,6 +2533,56 @@ function SettingsIcon() {
     <Icon>
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.5-.2-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V22h-4v-.3a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.2.1-2-3.5.1-.1A1.7 1.7 0 0 0 6 15a1.7 1.7 0 0 0-1.5-1H4v-4h.5A1.7 1.7 0 0 0 6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3.5.2.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5V2h4v.4a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.2-.1 2 3.5-.1.1A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+    </Icon>
+  );
+}
+
+function UserIcon() {
+  return (
+    <Icon>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5.5 19c1.4-3.2 3.7-4.8 6.5-4.8s5.1 1.6 6.5 4.8" />
+    </Icon>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <Icon>
+      <path d="M12 16V5" />
+      <path d="M8 9l4-4 4 4" />
+      <path d="M5 19h14" />
+    </Icon>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <Icon>
+      <path d="M10 17l-5-5 5-5" />
+      <path d="M5 12h11" />
+      <path d="M14 5h4v14h-4" />
+    </Icon>
+  );
+}
+
+function UtensilsIcon() {
+  return (
+    <Icon>
+      <path d="M7 4v7" />
+      <path d="M10 4v7" />
+      <path d="M7 7h3" />
+      <path d="M8.5 11v9" />
+      <path d="M15 4c0 3-1.5 4.5-3 5v11" />
+    </Icon>
+  );
+}
+
+function ArrowRightIcon() {
+  return (
+    <Icon>
+      <path d="M5 12h14" />
+      <path d="M13 6l6 6-6 6" />
     </Icon>
   );
 }

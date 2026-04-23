@@ -321,7 +321,7 @@ function App() {
         if (!data) {
           setMeal(null);
           setError(
-            `No recipes found for "${activeSearch.query}" with your ${getDietLabel(diet).toLowerCase()} profile. Try ${
+            `No recipes found for "${activeSearch.query}" with your ${getDietLabel(diet).toLowerCase()} setting. Try ${
               activeSearch.mode === 'ingredient' ? 'chicken, beef, avocado, or pasta' : 'Italian, Mexican, Indian, or Canadian'
             }.`
           );
@@ -370,7 +370,7 @@ function App() {
       const randomMeal = await fetchRandomRecipe(diet);
       if (!randomMeal) {
         setMeal(null);
-        setError(`No random recipes matched your ${getDietLabel(diet).toLowerCase()} profile. Try another preference.`);
+        setError(`No random recipes matched your ${getDietLabel(diet).toLowerCase()} setting. Try another preference.`);
         return;
       }
       setMeal(randomMeal);
@@ -516,10 +516,10 @@ function App() {
             </PrimaryButton>
           </TitleCard>
 
-          {view === 'profile' ? (
-            <ProfileView>
-              <SectionTitle>Profile</SectionTitle>
-              <ProfileCard>
+          {view === 'settings' ? (
+            <SettingsPage>
+              <SectionTitle>Settings</SectionTitle>
+              <SettingsCard>
                 <h2>Diet preference</h2>
                 <p>Recipe search and random discovery will only show meals that match this setting.</p>
                 <DietGrid>
@@ -534,8 +534,8 @@ function App() {
                     </DietButton>
                   ))}
                 </DietGrid>
-              </ProfileCard>
-            </ProfileView>
+              </SettingsCard>
+            </SettingsPage>
           ) : view === 'cookbook' ? (
             <CookbookView>
               <SectionTitle>
@@ -627,9 +627,9 @@ function App() {
             <BookIcon />
             Cookbook
           </NavItem>
-          <NavItem type="button" onClick={() => setView('profile')} $active={view === 'profile'}>
-            <UserIcon />
-            Profile
+          <NavItem type="button" onClick={() => setView('settings')} $active={view === 'settings'}>
+            <SettingsIcon />
+            Settings
           </NavItem>
         </BottomNav>
       </AppShell>
@@ -1018,11 +1018,11 @@ const CookbookView = styled.section`
   margin-top: 40px;
 `;
 
-const ProfileView = styled.section`
+const SettingsPage = styled.section`
   margin-top: 40px;
 `;
 
-const ProfileCard = styled.article`
+const SettingsCard = styled.article`
   padding: 24px;
   background: ${theme.color.white};
   border: 1px solid rgba(218, 193, 186, 0.48);
@@ -1370,11 +1370,11 @@ function CompassIcon() {
   );
 }
 
-function UserIcon() {
+function SettingsIcon() {
   return (
     <Icon>
-      <path d="M20 21a8 8 0 0 0-16 0" />
-      <circle cx="12" cy="7" r="4" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.5-.2-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V22h-4v-.3a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.2.1-2-3.5.1-.1A1.7 1.7 0 0 0 6 15a1.7 1.7 0 0 0-1.5-1H4v-4h.5A1.7 1.7 0 0 0 6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3.5.2.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5V2h4v.4a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.2-.1 2 3.5-.1.1A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1z" />
     </Icon>
   );
 }

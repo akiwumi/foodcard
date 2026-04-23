@@ -123,6 +123,20 @@ const animalProductWords = [
   'feta',
 ];
 
+function normalizePreferenceText(value) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function parseAllergies(value) {
+  const normalizedValue = value.trim().toLowerCase();
+  if (!normalizedValue || normalizedValue === 'no allergies') return [];
+
+  return value
+    .split(/[\n,;]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function getDietLabel(value) {
   return dietOptions.find(([key]) => key === value)?.[1] || 'Eat everything';
 }
@@ -198,6 +212,23 @@ function mealMatchesCategory(meal, category) {
   return mealCategory === category;
 }
 
+function mealMatchesAllergies(meal, allergies) {
+  const blockedIngredients = parseAllergies(allergies);
+  if (!meal || !blockedIngredients.length) return true;
+
+  const searchableText = [
+    meal.strMeal,
+    meal.strCategory,
+    meal.strInstructions,
+    ...getIngredients(meal).flat(),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return blockedIngredients.every((allergy) => !searchableText.includes(allergy));
+}
+
 async function lookupMeal(idMeal) {
   const detailResponse = await fetch(`${API_ROOT}/lookup.php?i=${idMeal}`);
   if (!detailResponse.ok) throw new Error('Could not load recipe details.');
@@ -206,7 +237,16 @@ async function lookupMeal(idMeal) {
   return detailData.meals?.[0] || null;
 }
 
-async function fetchRecipeSuggestions(searchMode, query, diet, category, page = 0) {
+function mealMatchesPreferences(meal, diet, allergies, category) {
+  return (
+    meal &&
+    mealMatchesDiet(meal, diet) &&
+    mealMatchesAllergies(meal, allergies) &&
+    mealMatchesCategory(meal, category)
+  );
+}
+
+async function fetchRecipeSuggestions(searchMode, query, diet, allergies, category, page = 0) {
   const normalizedQuery = query.trim().replace(/\s+/g, searchMode === 'ingredient' ? '_' : ' ');
   const filterKey = searchMode === 'ingredient' ? 'i' : 'a';
   const filterResponse = await fetch(
@@ -235,7 +275,7 @@ async function fetchRecipeSuggestions(searchMode, query, diet, category, page = 
 
     validMeals.push(
       ...detailBatch.filter(
-        (meal) => meal && mealMatchesDiet(meal, diet) && mealMatchesCategory(meal, category)
+        (meal) => mealMatchesPreferences(meal, diet, allergies, category)
       )
     );
   }
@@ -246,16 +286,26 @@ async function fetchRecipeSuggestions(searchMode, query, diet, category, page = 
   };
 }
 
-async function fetchRandomRecipe(diet) {
-  for (let attempt = 0; attempt < 15; attempt += 1) {
+async function fetchRandomRecipes(diet, allergies, category) {
+  const recipes = [];
+  const seenMealIds = new Set();
+  const maxAttempts = 80;
+
+  for (let attempt = 0; attempt < maxAttempts && recipes.length < SEARCH_PAGE_SIZE; attempt += 1) {
     const response = await fetch(`${API_ROOT}/random.php`);
     if (!response.ok) throw new Error('Could not discover a random recipe.');
     const data = await response.json();
     const meal = data.meals?.[0] || null;
-    if (mealMatchesDiet(meal, diet)) return meal;
+    if (!meal || seenMealIds.has(meal.idMeal)) continue;
+
+    seenMealIds.add(meal.idMeal);
+
+    if (mealMatchesPreferences(meal, diet, allergies, category)) {
+      recipes.push(meal);
+    }
   }
 
-  return null;
+  return recipes;
 }
 
 async function fetchProfile(userId) {
@@ -487,7 +537,11 @@ function App() {
   const [settingsDraft, setSettingsDraft] = useState({
     displayName: '',
     diet: 'everything',
+    allergies: '',
   });
+  const [allergies, setAllergies] = useState('');
+  const [allergyDraft, setAllergyDraft] = useState('');
+  const [isAllergyDialogOpen, setIsAllergyDialogOpen] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState('');
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [avatarFile, setAvatarFile] = useState(null);
@@ -515,9 +569,12 @@ function App() {
     activeSearch.mode === 'ingredient'
       ? `Ingredient: ${activeSearch.query}`
       : `Cuisine: ${activeSearch.query}`;
+  const allergyList = useMemo(() => parseAllergies(allergies), [allergies]);
   const settingsDirty =
     settingsDraft.displayName !== (profile?.display_name || '') ||
-    settingsDraft.diet !== (profile?.diet_preference || 'everything');
+    settingsDraft.diet !== (profile?.diet_preference || 'everything') ||
+    normalizePreferenceText(settingsDraft.allergies || '') !==
+      normalizePreferenceText(profile?.allergies || '');
 
   useEffect(() => {
     let isMounted = true;
@@ -586,7 +643,8 @@ function App() {
         setProfile(null);
         setCookbook([]);
         setDiet('everything');
-        setSettingsDraft({ displayName: '', diet: 'everything' });
+        setAllergies('');
+        setSettingsDraft({ displayName: '', diet: 'everything', allergies: '' });
         setCookbookLoading(false);
         return;
       }
@@ -607,9 +665,10 @@ function App() {
               email: user.email,
               display_name:
                 user.user_metadata?.display_name ||
-                user.email?.split('@')[0] ||
+              user.email?.split('@')[0] ||
                 'Food Card cook',
               diet_preference: 'everything',
+              allergies: '',
             });
           } else {
             throw fetchError;
@@ -622,10 +681,13 @@ function App() {
 
         setProfile(nextProfile);
         setDiet(nextProfile?.diet_preference || 'everything');
+        setAllergies(nextProfile?.allergies || '');
         setSettingsDraft({
           displayName: nextProfile?.display_name || '',
           diet: nextProfile?.diet_preference || 'everything',
+          allergies: nextProfile?.allergies || '',
         });
+        setAllergyDraft(nextProfile?.allergies || '');
         setCookbook(savedRecipes);
       } catch (storageError) {
         if (!isCurrent) return;
@@ -657,6 +719,7 @@ function App() {
           activeSearch.mode,
           activeSearch.query,
           diet,
+          allergies,
           activeSearch.category,
           searchPage
         );
@@ -701,7 +764,7 @@ function App() {
     return () => {
       isCurrent = false;
     };
-  }, [activeSearch, diet, searchPage]);
+  }, [activeSearch, diet, allergies, searchPage]);
 
   function scrollToContent() {
     window.requestAnimationFrame(() => {
@@ -751,20 +814,20 @@ function App() {
     setError('');
 
     try {
-      const randomMeal = await fetchRandomRecipe(diet);
-      if (!randomMeal) {
+      const randomMeals = await fetchRandomRecipes(diet, allergies, searchCategory);
+      if (!randomMeals.length) {
         setRecipes([]);
         setHasMoreRecipes(false);
         setMeal(null);
         setError(
-          `No random recipes matched your ${getDietLabel(diet).toLowerCase()} setting. Try another preference.`
+          `No random ${getCategoryLabel(searchCategory).toLowerCase()} recipes matched your preferences. Try another meal type or update your settings.`
         );
         return;
       }
-      setRecipes([randomMeal]);
+      setRecipes(randomMeals);
       setHasMoreRecipes(false);
       setSearchPage(0);
-      setMeal(randomMeal);
+      setMeal(randomMeals[0]);
     } catch (discoverError) {
       setError(discoverError.message || 'Could not discover a recipe right now.');
     } finally {
@@ -926,6 +989,7 @@ function App() {
             email: data.user.email,
             display_name: authForm.displayName.trim() || data.user.email?.split('@')[0],
             diet_preference: 'everything',
+            allergies: '',
           });
         }
 
@@ -989,6 +1053,26 @@ function App() {
     setSettingsStatus('');
   }
 
+  function handleOpenAllergyDialog() {
+    setAllergyDraft(settingsDraft.allergies || '');
+    setIsAllergyDialogOpen(true);
+    setSettingsStatus('');
+  }
+
+  function handleCloseAllergyDialog() {
+    setAllergyDraft(settingsDraft.allergies || '');
+    setIsAllergyDialogOpen(false);
+  }
+
+  function handleApplyAllergyDraft() {
+    handleSettingsDraftChange('allergies', allergyDraft);
+    setIsAllergyDialogOpen(false);
+  }
+
+  function handleSetNoAllergies() {
+    setAllergyDraft('');
+  }
+
   async function handleSaveSettings() {
     if (!user || !supabase) return;
 
@@ -1001,6 +1085,7 @@ function App() {
         email: user.email,
         display_name: settingsDraft.displayName.trim() || user.email?.split('@')[0] || 'Food Card cook',
         diet_preference: settingsDraft.diet,
+        allergies: normalizePreferenceText(settingsDraft.allergies || ''),
         avatar_path: profile?.avatar_path || null,
       };
 
@@ -1017,10 +1102,14 @@ function App() {
 
       setProfile(profileResult);
       setDiet(profileResult.diet_preference || 'everything');
+      setAllergies(profileResult.allergies || '');
       setSettingsDraft({
         displayName: profileResult.display_name || '',
         diet: profileResult.diet_preference || 'everything',
+        allergies: profileResult.allergies || '',
       });
+      setAllergyDraft(profileResult.allergies || '');
+      setIsAllergyDialogOpen(false);
       setSettingsStatus('Settings saved.');
     } catch (saveError) {
       setSettingsStatus(saveError.message || 'Could not save settings.');
@@ -1055,6 +1144,7 @@ function App() {
         email: user.email,
         display_name: profile?.display_name || user.user_metadata?.display_name || user.email,
         diet_preference: profile?.diet_preference || 'everything',
+        allergies: profile?.allergies || '',
         avatar_path: nextPath,
       });
 
@@ -1091,6 +1181,7 @@ function App() {
           <TitleCard>
             <TitleMeta>
               <Pill>{getDietLabel(diet)}</Pill>
+              <Pill>{allergyList.length ? `${allergyList.length} allergies` : 'No allergies'}</Pill>
               <Rating aria-label="Recipe source">
                 <span>★★★★★</span>
                 <small>
@@ -1477,6 +1568,28 @@ function App() {
                 </DietGrid>
               </Field>
 
+              <Field>
+                <span>Allergies</span>
+                <AllergyPanel>
+                  <AllergySummary>
+                    {settingsDraft.allergies
+                      ? settingsDraft.allergies
+                      : 'No allergies'}
+                  </AllergySummary>
+                  <SettingsActions>
+                    <SecondaryButton type="button" onClick={handleOpenAllergyDialog}>
+                      Fill in allergies
+                    </SecondaryButton>
+                    <SecondaryButton
+                      type="button"
+                      onClick={() => handleSettingsDraftChange('allergies', '')}
+                    >
+                      No allergies
+                    </SecondaryButton>
+                  </SettingsActions>
+                </AllergyPanel>
+              </Field>
+
               <SettingsActions>
                 <PrimaryButton
                   type="button"
@@ -1528,6 +1641,43 @@ function App() {
             </SettingsCard>
           </SettingsStack>
         )}
+
+        {isAllergyDialogOpen ? (
+          <DialogBackdrop role="presentation" onClick={handleCloseAllergyDialog}>
+            <DialogCard
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="allergy-dialog-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h2 id="allergy-dialog-title">Fill in allergies</h2>
+              <p>
+                Enter one or more allergies separated by commas or new lines. Searches and
+                surprise picks will filter them out.
+              </p>
+              <Field>
+                <span>Allergies</span>
+                <TextAreaInput
+                  value={allergyDraft}
+                  onChange={(event) => setAllergyDraft(event.target.value)}
+                  placeholder={'Peanuts\nShellfish\nSesame'}
+                  rows={6}
+                />
+              </Field>
+              <SettingsActions>
+                <SecondaryButton type="button" onClick={handleSetNoAllergies}>
+                  No allergies
+                </SecondaryButton>
+                <SecondaryButton type="button" onClick={handleCloseAllergyDialog}>
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton type="button" onClick={handleApplyAllergyDraft}>
+                  Save allergies
+                </PrimaryButton>
+              </SettingsActions>
+            </DialogCard>
+          </DialogBackdrop>
+        ) : null}
       </StandaloneContent>
     );
   }
@@ -2563,6 +2713,73 @@ const TextInput = styled.input`
   &:focus {
     border-color: ${theme.color.secondary};
     box-shadow: 0 0 0 3px rgba(53, 94, 87, 0.16);
+  }
+`;
+
+const TextAreaInput = styled.textarea`
+  width: 100%;
+  min-height: 140px;
+  padding: 12px 14px;
+  color: ${theme.color.text};
+  background: ${theme.color.white};
+  border: 1px solid rgba(217, 191, 177, 0.82);
+  border-radius: 10px;
+  outline: none;
+  resize: vertical;
+
+  &:focus {
+    border-color: ${theme.color.secondary};
+    box-shadow: 0 0 0 3px rgba(53, 94, 87, 0.16);
+  }
+`;
+
+const AllergyPanel = styled.div`
+  display: grid;
+  gap: 12px;
+`;
+
+const AllergySummary = styled.div`
+  min-height: 56px;
+  padding: 14px;
+  color: ${theme.color.text};
+  background: ${theme.color.surfaceLow};
+  border: 1px solid rgba(217, 191, 177, 0.44);
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+`;
+
+const DialogBackdrop = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(18, 17, 15, 0.48);
+  backdrop-filter: blur(8px);
+`;
+
+const DialogCard = styled.article`
+  width: min(100%, 560px);
+  padding: 24px;
+  background: ${theme.color.white};
+  border: 1px solid rgba(217, 191, 177, 0.44);
+  border-radius: 18px;
+  box-shadow: ${theme.shadow.lift};
+
+  h2 {
+    margin: 0 0 8px;
+    font-family: 'Epilogue', system-ui, sans-serif;
+    font-size: 26px;
+  }
+
+  p {
+    margin: 0 0 18px;
+    color: ${theme.color.muted};
+    font-size: 14px;
+    line-height: 1.6;
   }
 `;
 

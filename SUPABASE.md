@@ -18,10 +18,14 @@ create table if not exists public.user_profiles (
   diet_preference text not null default 'everything' check (
     diet_preference in ('everything', 'vegetarian', 'vegan', 'pescatarian')
   ),
+  allergies text not null default '',
   avatar_path text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.user_profiles
+add column if not exists allergies text not null default '';
 
 create table if not exists public.recipe_cookbook (
   id uuid primary key default gen_random_uuid(),
@@ -65,12 +69,13 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.user_profiles (id, email, display_name, diet_preference)
+  insert into public.user_profiles (id, email, display_name, diet_preference, allergies)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data ->> 'display_name', split_part(new.email, '@', 1)),
-    'everything'
+    'everything',
+    ''
   )
   on conflict (id) do nothing;
 

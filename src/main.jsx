@@ -322,6 +322,21 @@ function getRecoveryTypeFromHash() {
   return params.get('type');
 }
 
+function getAuthCallbackType() {
+  const hash = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  const hashParams = new URLSearchParams(hash);
+  const searchParams = new URLSearchParams(window.location.search);
+
+  return (
+    hashParams.get('type') ||
+    searchParams.get('type') ||
+    (hashParams.get('access_token') ? 'authenticated' : null) ||
+    (searchParams.get('code') ? 'authenticated' : null)
+  );
+}
+
 function rememberSplashDismissed() {
   window.localStorage.setItem(SPLASH_KEY, String(Date.now()));
 }
@@ -356,6 +371,7 @@ function App() {
   const [authMessage, setAuthMessage] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authMode, setAuthMode] = useState('login');
+  const [welcomeMessage, setWelcomeMessage] = useState('Your account is ready.');
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -398,12 +414,20 @@ function App() {
         return;
       }
 
-      const recoveryType = getRecoveryTypeFromHash();
-      if (recoveryType === 'recovery') {
+      const callbackType = getAuthCallbackType();
+      if (callbackType === 'recovery') {
         setAppStage('main');
         setView('settings');
         setAuthMode('reset');
         setAuthMessage('Set a new password for your account.');
+      } else if (callbackType) {
+        setAppStage('welcome');
+        setView('discover');
+        setWelcomeMessage(
+          callbackType === 'signup'
+            ? 'Welcome to Food Card. Your email has been confirmed.'
+            : 'Welcome back. Your authentication link worked.'
+        );
       }
 
       const { data, error: sessionError } = await supabase.auth.getSession();
@@ -561,6 +585,12 @@ function App() {
 
   function handleEnterApp() {
     rememberSplashDismissed();
+    setAppStage('main');
+  }
+
+  function handleContinueFromWelcome() {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    setView('discover');
     setAppStage('main');
   }
 
@@ -1269,6 +1299,19 @@ function App() {
     );
   }
 
+  if (appStage === 'welcome') {
+    return (
+      <ThemeProviderWrapper>
+        <GlobalStyle />
+        <WelcomeScreen
+          userName={profile?.display_name || user?.user_metadata?.display_name || user?.email}
+          message={welcomeMessage}
+          onContinue={handleContinueFromWelcome}
+        />
+      </ThemeProviderWrapper>
+    );
+  }
+
   return (
     <ThemeProviderWrapper>
       <GlobalStyle />
@@ -1359,6 +1402,24 @@ function SplashScreen({ onEnter }) {
         <MobileSplashHint>Tap anywhere to continue</MobileSplashHint>
       </SplashContent>
     </SplashShell>
+  );
+}
+
+function WelcomeScreen({ userName, message, onContinue }) {
+  return (
+    <WelcomeShell>
+      <SplashVisual aria-hidden="true" />
+      <SplashOverlay />
+      <WelcomeCard>
+        <WelcomeEyebrow>Welcome</WelcomeEyebrow>
+        <WelcomeTitle>{userName ? `Hi, ${userName}` : 'You are signed in'}</WelcomeTitle>
+        <WelcomeText>{message}</WelcomeText>
+        <SplashCta type="button" onClick={onContinue}>
+          Continue to Food Card
+          <ArrowRightIcon />
+        </SplashCta>
+      </WelcomeCard>
+    </WelcomeShell>
   );
 }
 
@@ -2246,6 +2307,15 @@ const SplashShell = styled.div`
   overflow: hidden;
 `;
 
+const WelcomeShell = styled.div`
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  overflow: hidden;
+`;
+
 const SplashVisual = styled.div`
   position: absolute;
   inset: 0;
@@ -2280,6 +2350,44 @@ const SplashContent = styled.div`
   justify-content: center;
   min-height: 100vh;
   padding: 32px 24px 36px;
+`;
+
+const WelcomeCard = styled.div`
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  width: min(100%, 560px);
+  padding: clamp(26px, 5vw, 44px);
+  color: ${theme.color.white};
+  background: rgba(24, 18, 14, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 24px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(16px);
+`;
+
+const WelcomeEyebrow = styled.span`
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+`;
+
+const WelcomeTitle = styled.h1`
+  margin: 0;
+  font-family: 'Epilogue', system-ui, sans-serif;
+  font-size: clamp(34px, 5vw, 54px);
+  line-height: 1.05;
+`;
+
+const WelcomeText = styled.p`
+  margin: 0 0 8px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 18px;
+  line-height: 1.55;
 `;
 
 const MobileSplashLockup = styled.div`

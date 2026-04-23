@@ -518,6 +518,7 @@ function App() {
   });
   const [diet, setDiet] = useState('everything');
   const [meal, setMeal] = useState(null);
+  const [isRecipeCardOpen, setIsRecipeCardOpen] = useState(false);
   const [recipes, setRecipes] = useState([]);
   const [searchPage, setSearchPage] = useState(0);
   const [hasMoreRecipes, setHasMoreRecipes] = useState(false);
@@ -729,6 +730,7 @@ function App() {
           setRecipes([]);
           setHasMoreRecipes(false);
           setMeal(null);
+          setIsRecipeCardOpen(false);
           const courseText =
             activeSearch.category === 'all'
               ? ''
@@ -748,12 +750,14 @@ function App() {
         setRecipes(data.recipes);
         setHasMoreRecipes(data.hasMore);
         setMeal(data.recipes[0]);
+        setIsRecipeCardOpen(false);
       } catch (fetchError) {
         if (!isCurrent) return;
         setError(fetchError.message || 'Could not load recipes right now.');
         setRecipes([]);
         setHasMoreRecipes(false);
         setMeal(null);
+        setIsRecipeCardOpen(false);
       } finally {
         if (isCurrent) setLoading(false);
       }
@@ -781,6 +785,11 @@ function App() {
     window.history.replaceState({}, document.title, '/');
     setView('discover');
     setAppStage('main');
+  }
+
+  function handleReturnToLandingPage() {
+    setAppStage('splash');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function handleSubmit(event) {
@@ -819,6 +828,7 @@ function App() {
         setRecipes([]);
         setHasMoreRecipes(false);
         setMeal(null);
+        setIsRecipeCardOpen(false);
         setError(
           `No random ${getCategoryLabel(searchCategory).toLowerCase()} recipes matched your preferences. Try another meal type or update your settings.`
         );
@@ -828,6 +838,7 @@ function App() {
       setHasMoreRecipes(false);
       setSearchPage(0);
       setMeal(randomMeals[0]);
+      setIsRecipeCardOpen(false);
     } catch (discoverError) {
       setError(discoverError.message || 'Could not discover a recipe right now.');
     } finally {
@@ -897,12 +908,20 @@ function App() {
     setHasMoreRecipes(false);
     setSearchPage(0);
     setMeal(recipe);
+    setIsRecipeCardOpen(true);
     setView('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function handleSelectRecipe(recipe) {
     setMeal(recipe);
+    setIsRecipeCardOpen(true);
+    scrollToContent();
+  }
+
+  function handleReturnToResults() {
+    setIsRecipeCardOpen(false);
+    scrollToContent();
   }
 
   function handleLoadMoreSuggestions() {
@@ -1317,9 +1336,13 @@ function App() {
                 </SuggestionGrid>
               </SuggestionsSection>
             ) : null}
-            {meal ? (
+            {meal && isRecipeCardOpen ? (
               <RecipeGrid>
                 <IngredientsPanel>
+                  <RecipeCardBackButton type="button" onClick={handleReturnToResults}>
+                    <ArrowLeftIcon />
+                    Return to results
+                  </RecipeCardBackButton>
                   <SectionTitle>
                     Ingredients <small>({ingredientItems.length} items)</small>
                   </SectionTitle>
@@ -1709,7 +1732,7 @@ function App() {
       <GlobalStyle />
       <AppShell>
         <TopBar>
-          <BrandBlock>
+          <BrandBlock type="button" onClick={handleReturnToLandingPage} aria-label="Return to landing page">
             <BrandDot />
             <div>
               <BrandName>Food Card</BrandName>
@@ -1879,11 +1902,16 @@ const TopBar = styled.header`
   backdrop-filter: blur(12px);
 `;
 
-const BrandBlock = styled.div`
+const BrandBlock = styled.button`
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 `;
 
 const BrandDot = styled.span`
@@ -2413,6 +2441,31 @@ const RecipeGrid = styled.div`
 
   @media (max-width: 860px) {
     grid-template-columns: 1fr;
+  }
+`;
+
+const RecipeCardBackButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 0;
+  color: ${theme.color.primary};
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+
+  &:hover {
+    color: ${theme.color.primaryDark};
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
   }
 `;
 
@@ -3288,6 +3341,15 @@ function ArrowRightIcon() {
     <Icon>
       <path d="M5 12h14" />
       <path d="M13 6l6 6-6 6" />
+    </Icon>
+  );
+}
+
+function ArrowLeftIcon() {
+  return (
+    <Icon>
+      <path d="M19 12H5" />
+      <path d="M11 6 5 12l6 6" />
     </Icon>
   );
 }

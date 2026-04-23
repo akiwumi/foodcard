@@ -297,18 +297,23 @@ function App() {
   const [view, setView] = useState('recipe');
   const [profileId, setProfileId] = useState('');
   const [diet, setDiet] = useState('everything');
+  const [draftDiet, setDraftDiet] = useState('everything');
   const [meal, setMeal] = useState(null);
   const [cookbook, setCookbook] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cookbookLoading, setCookbookLoading] = useState(false);
   const [error, setError] = useState('');
   const [cookbookError, setCookbookError] = useState('');
+  const [settingsMessage, setSettingsMessage] = useState('');
   const viewContentRef = useRef(null);
   const isSaved = meal ? cookbook.some((recipe) => recipe.idMeal === meal.idMeal) : false;
+  const isSettingsDirty = draftDiet !== diet;
 
   useEffect(() => {
     setProfileId(getProfileId());
-    setDiet(getStoredDiet());
+    const storedDiet = getStoredDiet();
+    setDiet(storedDiet);
+    setDraftDiet(storedDiet);
   }, []);
 
   useEffect(() => {
@@ -455,43 +460,29 @@ function App() {
   }
 
   function handleDietChange(nextDiet) {
-    setDiet(nextDiet);
-    storeDiet(nextDiet);
+    setDraftDiet(nextDiet);
+    setSettingsMessage('');
+  }
+
+  function handleSaveSettings() {
+    setDiet(draftDiet);
+    storeDiet(draftDiet);
+    setSettingsMessage('Settings saved.');
   }
 
   function handleViewChange(nextView) {
     setView(nextView);
+    if (nextView !== 'settings') {
+      setSettingsMessage('');
+    }
     window.requestAnimationFrame(() => {
       viewContentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
 
-  return (
-    <ThemeProviderWrapper>
-      <GlobalStyle />
-      <AppShell>
-        <TopBar>
-          <RoundButton aria-label="Go back">
-            <Icon>
-              <path d="M15 18l-6-6 6-6" />
-            </Icon>
-          </RoundButton>
-          <TopActions>
-            <RoundButton aria-label="Share recipe">
-              <Icon>
-                <path d="M8 12h8" />
-                <path d="M13 7l5 5-5 5" />
-                <path d="M18 12H6" />
-              </Icon>
-            </RoundButton>
-            <RoundButton aria-label="Favorite recipe" $active>
-              <Icon filled>
-                <path d="M20.8 4.6c-1.7-1.6-4.4-1.5-6 .2L12 7.7 9.2 4.8c-1.6-1.7-4.3-1.8-6-.2-1.8 1.7-1.8 4.5-.1 6.2L12 20l8.9-9.2c1.7-1.7 1.7-4.5-.1-6.2z" />
-              </Icon>
-            </RoundButton>
-          </TopActions>
-        </TopBar>
-
+  function renderRecipePage() {
+    return (
+      <>
         <Hero>{heroImage ? <HeroImage src={heroImage} alt={title} /> : <HeroEmpty />}</Hero>
 
         <Content>
@@ -562,69 +553,18 @@ function App() {
                 <strong>{ingredientItems.length}</strong>
               </Stat>
             </Stats>
-            <PrimaryButton type="button" onClick={handleSaveRecipe} disabled={!meal || isSaved || !profileId}>
+            <PrimaryButton
+              type="button"
+              onClick={handleSaveRecipe}
+              disabled={!meal || isSaved || !profileId}
+            >
               <BookIcon />
               {isSaved ? 'Saved to cookbook' : 'Save to cookbook'}
             </PrimaryButton>
           </TitleCard>
 
           <ViewContent ref={viewContentRef}>
-            {view === 'settings' ? (
-              <SettingsPage>
-                <SectionTitle>Settings</SectionTitle>
-                <SettingsCard>
-                  <h2>Diet preference</h2>
-                  <p>Recipe search and random discovery will only show meals that match this setting.</p>
-                  <DietGrid>
-                    {dietOptions.map(([value, label]) => (
-                      <DietButton
-                        key={value}
-                        type="button"
-                        onClick={() => handleDietChange(value)}
-                        $active={diet === value}
-                      >
-                        {label}
-                      </DietButton>
-                    ))}
-                  </DietGrid>
-                </SettingsCard>
-              </SettingsPage>
-            ) : view === 'cookbook' ? (
-              <CookbookView>
-                <SectionTitle>
-                  Cookbook <small>({cookbook.length} saved)</small>
-                </SectionTitle>
-                {cookbookLoading ? (
-                  <EmptyState>Loading your Supabase cookbook...</EmptyState>
-                ) : cookbook.length ? (
-                  <SavedGrid>
-                    {cookbook.map((recipe) => (
-                      <SavedCard key={recipe.idMeal}>
-                        <button type="button" onClick={() => handleOpenSavedRecipe(recipe)}>
-                          <img src={recipe.strMealThumb} alt="" />
-                          <span>
-                            <strong>{recipe.strMeal}</strong>
-                            <small>
-                              {recipe.strCategory} · {recipe.strArea}
-                            </small>
-                          </span>
-                        </button>
-                        <RemoveButton
-                          type="button"
-                          onClick={() => handleRemoveSavedRecipe(recipe.idMeal)}
-                        >
-                          Remove
-                        </RemoveButton>
-                      </SavedCard>
-                    ))}
-                  </SavedGrid>
-                ) : (
-                  <EmptyState>
-                    Your cookbook is empty. Search for a recipe, then save it to keep it here.
-                  </EmptyState>
-                )}
-              </CookbookView>
-            ) : meal ? (
+            {meal ? (
               <RecipeGrid>
                 <IngredientsPanel>
                   <SectionTitle>
@@ -666,6 +606,122 @@ function App() {
             )}
           </ViewContent>
         </Content>
+      </>
+    );
+  }
+
+  function renderCookbookPage() {
+    return (
+      <StandaloneContent ref={viewContentRef}>
+        <StandaloneHeader>
+          <SectionTitle>
+            Cookbook <small>({cookbook.length} saved)</small>
+          </SectionTitle>
+          <StandaloneIntro>
+            Open your saved recipes here without mixing them into the live search results page.
+          </StandaloneIntro>
+        </StandaloneHeader>
+        {cookbookError ? <SearchMessage role="status">{cookbookError}</SearchMessage> : null}
+        {cookbookLoading ? (
+          <EmptyState>Loading your Supabase cookbook...</EmptyState>
+        ) : cookbook.length ? (
+          <SavedGrid>
+            {cookbook.map((recipe) => (
+              <SavedCard key={recipe.idMeal}>
+                <button type="button" onClick={() => handleOpenSavedRecipe(recipe)}>
+                  <img src={recipe.strMealThumb} alt="" />
+                  <span>
+                    <strong>{recipe.strMeal}</strong>
+                    <small>
+                      {recipe.strCategory} · {recipe.strArea}
+                    </small>
+                  </span>
+                </button>
+                <RemoveButton
+                  type="button"
+                  onClick={() => handleRemoveSavedRecipe(recipe.idMeal)}
+                >
+                  Remove
+                </RemoveButton>
+              </SavedCard>
+            ))}
+          </SavedGrid>
+        ) : (
+          <EmptyState>
+            Your cookbook is empty. Search for a recipe, then save it to keep it here.
+          </EmptyState>
+        )}
+      </StandaloneContent>
+    );
+  }
+
+  function renderSettingsPage() {
+    return (
+      <StandaloneContent ref={viewContentRef}>
+        <StandaloneHeader>
+          <SectionTitle>Settings</SectionTitle>
+          <StandaloneIntro>
+            Choose your diet preference here, then save it before returning to recipe search.
+          </StandaloneIntro>
+        </StandaloneHeader>
+        <SettingsCard>
+          <h2>Diet preference</h2>
+          <p>Recipe search and random discovery will only show meals that match this setting.</p>
+          <DietGrid>
+            {dietOptions.map(([value, label]) => (
+              <DietButton
+                key={value}
+                type="button"
+                onClick={() => handleDietChange(value)}
+                $active={draftDiet === value}
+              >
+                {label}
+              </DietButton>
+            ))}
+          </DietGrid>
+          <SettingsActions>
+            <PrimaryButton type="button" onClick={handleSaveSettings} disabled={!isSettingsDirty}>
+              <SettingsIcon />
+              Save settings
+            </PrimaryButton>
+            {settingsMessage ? <SettingsStatus role="status">{settingsMessage}</SettingsStatus> : null}
+          </SettingsActions>
+        </SettingsCard>
+      </StandaloneContent>
+    );
+  }
+
+  return (
+    <ThemeProviderWrapper>
+      <GlobalStyle />
+      <AppShell>
+        <TopBar>
+          <RoundButton aria-label="Go back">
+            <Icon>
+              <path d="M15 18l-6-6 6-6" />
+            </Icon>
+          </RoundButton>
+          <TopActions>
+            <RoundButton aria-label="Share recipe">
+              <Icon>
+                <path d="M8 12h8" />
+                <path d="M13 7l5 5-5 5" />
+                <path d="M18 12H6" />
+              </Icon>
+            </RoundButton>
+            <RoundButton aria-label="Favorite recipe" $active>
+              <Icon filled>
+                <path d="M20.8 4.6c-1.7-1.6-4.4-1.5-6 .2L12 7.7 9.2 4.8c-1.6-1.7-4.3-1.8-6-.2-1.8 1.7-1.8 4.5-.1 6.2L12 20l8.9-9.2c1.7-1.7 1.7-4.5-.1-6.2z" />
+              </Icon>
+            </RoundButton>
+          </TopActions>
+        </TopBar>
+
+        {view === 'cookbook'
+          ? renderCookbookPage()
+          : view === 'settings'
+            ? renderSettingsPage()
+            : renderRecipePage()}
 
         <BottomNav aria-label="Primary">
           <NavItem type="button" onClick={handleDiscoverRandom} $active={view === 'recipe'}>
@@ -811,6 +867,28 @@ const Content = styled.main`
     width: calc(100% - 24px);
     margin-top: -54px;
   }
+`;
+
+const StandaloneContent = styled.main`
+  width: min(1120px, calc(100% - clamp(32px, 8vw, 96px)));
+  margin: 104px auto 0;
+
+  @media (max-width: 640px) {
+    width: calc(100% - 24px);
+    margin-top: 88px;
+  }
+`;
+
+const StandaloneHeader = styled.div`
+  margin-bottom: 20px;
+`;
+
+const StandaloneIntro = styled.p`
+  max-width: 640px;
+  margin: 0;
+  color: ${theme.color.muted};
+  font-size: 15px;
+  line-height: 1.6;
 `;
 
 const TitleCard = styled.article`
@@ -1068,14 +1146,6 @@ const EmptyState = styled.div`
   line-height: 1.6;
 `;
 
-const CookbookView = styled.section`
-  margin-top: 40px;
-`;
-
-const SettingsPage = styled.section`
-  margin-top: 40px;
-`;
-
 const SettingsCard = styled.article`
   padding: 24px;
   background: ${theme.color.white};
@@ -1096,6 +1166,19 @@ const SettingsCard = styled.article`
     font-size: 14px;
     line-height: 1.6;
   }
+`;
+
+const SettingsActions = styled.div`
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+`;
+
+const SettingsStatus = styled.p`
+  margin: 0;
+  color: ${theme.color.secondary};
+  font-size: 13px;
+  font-weight: 700;
 `;
 
 const DietGrid = styled.div`

@@ -2109,13 +2109,17 @@ const HeroScrim = styled.div`
 
 const HeroOverlay = styled.div`
   position: absolute;
-  inset: auto auto 0 0;
+  inset: auto auto 80px 0;
   z-index: 1;
   display: grid;
   gap: 12px;
   width: min(640px, calc(100% - 32px));
   padding: clamp(22px, 4vw, 42px);
   color: ${theme.color.white};
+
+  @media (max-width: 640px) {
+    inset: auto auto 64px 0;
+  }
 `;
 
 const HeroKicker = styled.span`

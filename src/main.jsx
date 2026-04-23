@@ -34,6 +34,8 @@ const theme = {
 
 const API_ROOT = 'https://www.themealdb.com/api/json/v1/1';
 const SPLASH_KEY = 'recipe-card-app:last-splash-dismissed-at';
+const WELCOME_PATH = '/welcome';
+const RECOVERY_PATH = '/reset-password';
 const DEFAULT_AVATAR =
   'data:image/svg+xml;utf8,' +
   encodeURIComponent(`
@@ -300,8 +302,9 @@ async function removeCookbookRecipe(userId, mealId) {
   if (error) throw error;
 }
 
-function getRedirectUrl() {
-  return import.meta.env.VITE_SUPABASE_REDIRECT_URL || window.location.origin;
+function getRedirectUrl(path = '') {
+  const baseUrl = import.meta.env.VITE_SUPABASE_REDIRECT_URL || window.location.origin;
+  return new URL(path, baseUrl).toString();
 }
 
 function getAvatarUrl(path) {
@@ -337,6 +340,76 @@ function getAuthCallbackType() {
   );
 }
 
+function getInitialAuthUIState() {
+  const pathname = window.location.pathname;
+  const callbackType = getAuthCallbackType();
+
+  if (callbackType === 'recovery' || pathname === RECOVERY_PATH) {
+    return {
+      appStage: 'main',
+      view: 'settings',
+      authMode: 'reset',
+      authMessage: 'Set a new password for your account.',
+      welcomeMessage: 'Your account is ready.',
+    };
+  }
+
+  if (callbackType || pathname === WELCOME_PATH) {
+    return {
+      appStage: 'welcome',
+      view: 'discover',
+      authMode: 'login',
+      authMessage: '',
+      welcomeMessage:
+        callbackType === 'signup'
+          ? 'Welcome to Food Card. Your email has been confirmed.'
+          : 'Welcome back. Your authentication link worked.',
+    };
+  }
+
+  return {
+    appStage: 'splash',
+    view: 'discover',
+    authMode: 'login',
+    authMessage: '',
+    welcomeMessage: 'Your account is ready.',
+  };
+}
+
+function clearAuthCallbackUrl() {
+  const url = new URL(window.location.href);
+  const authKeys = [
+    'access_token',
+    'refresh_token',
+    'expires_at',
+    'expires_in',
+    'token_type',
+    'type',
+    'code',
+    'error',
+    'error_code',
+    'error_description',
+    'provider_token',
+    'provider_refresh_token',
+    'sb',
+  ];
+
+  for (const key of authKeys) {
+    url.searchParams.delete(key);
+  }
+
+  const hash = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash;
+  const hashParams = new URLSearchParams(hash);
+
+  for (const key of authKeys) {
+    hashParams.delete(key);
+  }
+
+  const nextHash = hashParams.toString();
+  const nextUrl = `${url.pathname}${url.search}${nextHash ? `#${nextHash}` : ''}`;
+  window.history.replaceState({}, document.title, nextUrl);
+}
+
 function rememberSplashDismissed() {
   window.localStorage.setItem(SPLASH_KEY, String(Date.now()));
 }
@@ -350,8 +423,9 @@ function Icon({ children, filled = false }) {
 }
 
 function App() {
-  const [appStage, setAppStage] = useState('splash');
-  const [view, setView] = useState('discover');
+  const initialAuthUIState = getInitialAuthUIState();
+  const [appStage, setAppStage] = useState(initialAuthUIState.appStage);
+  const [view, setView] = useState(initialAuthUIState.view);
   const [searchMode, setSearchMode] = useState('ingredient');
   const [searchInput, setSearchInput] = useState('salmon');
   const [searchCategory, setSearchCategory] = useState('all');
@@ -368,10 +442,10 @@ function App() {
   const [error, setError] = useState('');
   const [cookbookError, setCookbookError] = useState('');
   const [authError, setAuthError] = useState('');
-  const [authMessage, setAuthMessage] = useState('');
+  const [authMessage, setAuthMessage] = useState(initialAuthUIState.authMessage);
   const [authLoading, setAuthLoading] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
-  const [welcomeMessage, setWelcomeMessage] = useState('Your account is ready.');
+  const [authMode, setAuthMode] = useState(initialAuthUIState.authMode);
+  const [welcomeMessage, setWelcomeMessage] = useState(initialAuthUIState.welcomeMessage);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -437,6 +511,9 @@ function App() {
         setAuthError(sessionError.message);
       } else {
         setSession(data.session);
+        if (callbackType) {
+          clearAuthCallbackUrl();
+        }
       }
 
       const {
@@ -589,7 +666,7 @@ function App() {
   }
 
   function handleContinueFromWelcome() {
-    window.history.replaceState({}, document.title, window.location.pathname);
+    window.history.replaceState({}, document.title, '/');
     setView('discover');
     setAppStage('main');
   }
@@ -731,7 +808,7 @@ function App() {
             data: {
               display_name: authForm.displayName.trim(),
             },
-            emailRedirectTo: getRedirectUrl(),
+            emailRedirectTo: getRedirectUrl(WELCOME_PATH),
           },
         });
 
@@ -756,7 +833,7 @@ function App() {
 
       if (authMode === 'forgot') {
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(authForm.email, {
-          redirectTo: getRedirectUrl(),
+          redirectTo: getRedirectUrl(RECOVERY_PATH),
         });
 
         if (resetError) throw resetError;
@@ -778,7 +855,7 @@ function App() {
         setAuthError('');
         setAuthMessage('Password updated. You can now sign in.');
         setAuthMode('login');
-        window.history.replaceState({}, document.title, window.location.pathname);
+        window.history.replaceState({}, document.title, '/');
       }
     } catch (submitError) {
       setAuthError(submitError.message || 'Could not complete authentication.');

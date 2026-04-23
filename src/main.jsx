@@ -46,8 +46,19 @@ const dietOptions = [
   ['pescatarian', 'Pescatarian'],
 ];
 
+const categoryOptions = [
+  ['all', 'Any course'],
+  ['main', 'Main'],
+  ['starter', 'Starter'],
+  ['dessert', 'Dessert'],
+];
+
 function getDietLabel(value) {
   return dietOptions.find(([key]) => key === value)?.[1] || 'Eat everything';
+}
+
+function getCategoryLabel(value) {
+  return categoryOptions.find(([key]) => key === value)?.[1] || 'Any course';
 }
 
 const meatWords = [
@@ -177,6 +188,18 @@ function mealMatchesDiet(meal, diet) {
   return true;
 }
 
+function mealMatchesCategory(meal, category) {
+  if (!meal || category === 'all') return true;
+
+  const mealCategory = meal.strCategory?.toLowerCase() || '';
+
+  if (category === 'main') {
+    return !['starter', 'dessert', 'side'].includes(mealCategory);
+  }
+
+  return mealCategory === category;
+}
+
 async function lookupMeal(idMeal) {
   const detailResponse = await fetch(`${API_ROOT}/lookup.php?i=${idMeal}`);
   if (!detailResponse.ok) throw new Error('Could not load recipe details.');
@@ -185,7 +208,7 @@ async function lookupMeal(idMeal) {
   return detailData.meals?.[0] || null;
 }
 
-async function fetchRecipe(searchMode, query, diet) {
+async function fetchRecipe(searchMode, query, diet, category) {
   const normalizedQuery = query.trim().replace(/\s+/g, searchMode === 'ingredient' ? '_' : ' ');
   const filterKey = searchMode === 'ingredient' ? 'i' : 'a';
   const filterResponse = await fetch(
@@ -199,7 +222,7 @@ async function fetchRecipe(searchMode, query, diet) {
 
   for (const match of matches.slice(0, 12)) {
     const meal = await lookupMeal(match.idMeal);
-    if (mealMatchesDiet(meal, diet)) return meal;
+    if (mealMatchesDiet(meal, diet) && mealMatchesCategory(meal, category)) return meal;
   }
 
   return null;
@@ -265,7 +288,12 @@ function Icon({ children, filled = false }) {
 function App() {
   const [searchMode, setSearchMode] = useState('ingredient');
   const [searchInput, setSearchInput] = useState('salmon');
-  const [activeSearch, setActiveSearch] = useState({ mode: 'ingredient', query: 'salmon' });
+  const [searchCategory, setSearchCategory] = useState('all');
+  const [activeSearch, setActiveSearch] = useState({
+    mode: 'ingredient',
+    query: 'salmon',
+    category: 'all',
+  });
   const [view, setView] = useState('recipe');
   const [profileId, setProfileId] = useState('');
   const [diet, setDiet] = useState('everything');
@@ -315,13 +343,22 @@ function App() {
       setError('');
 
       try {
-        const data = await fetchRecipe(activeSearch.mode, activeSearch.query, diet);
+        const data = await fetchRecipe(
+          activeSearch.mode,
+          activeSearch.query,
+          diet,
+          activeSearch.category
+        );
         if (!isCurrent) return;
 
         if (!data) {
           setMeal(null);
+          const courseText =
+            activeSearch.category === 'all'
+              ? ''
+              : ` in ${getCategoryLabel(activeSearch.category).toLowerCase()}`;
           setError(
-            `No recipes found for "${activeSearch.query}" with your ${getDietLabel(diet).toLowerCase()} setting. Try ${
+            `No${courseText} recipes found for "${activeSearch.query}" with your ${getDietLabel(diet).toLowerCase()} setting. Try ${
               activeSearch.mode === 'ingredient' ? 'chicken, beef, avocado, or pasta' : 'Italian, Mexican, Indian, or Canadian'
             }.`
           );
@@ -356,7 +393,7 @@ function App() {
     event.preventDefault();
     const nextQuery = searchInput.trim();
     if (nextQuery) {
-      setActiveSearch({ mode: searchMode, query: nextQuery });
+      setActiveSearch({ mode: searchMode, query: nextQuery, category: searchCategory });
       setView('recipe');
     }
   }
@@ -468,6 +505,17 @@ function App() {
                 >
                   <option value="ingredient">Ingredient</option>
                   <option value="cuisine">Cuisine</option>
+                </SearchSelect>
+                <SearchSelect
+                  aria-label="Course category"
+                  value={searchCategory}
+                  onChange={(event) => setSearchCategory(event.target.value)}
+                >
+                  {categoryOptions.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </SearchSelect>
                 <SearchInput
                   id="recipe-search"
@@ -822,12 +870,13 @@ const SearchPanel = styled.form`
 
 const SearchRow = styled.div`
   display: grid;
-  grid-template-columns: minmax(140px, 180px) 1fr auto;
+  grid-template-columns: minmax(130px, 170px) minmax(120px, 150px) 1fr auto;
   gap: 10px;
 
-  @media (max-width: 720px) {
-    grid-template-columns: minmax(120px, 0.7fr) 1fr;
+  @media (max-width: 820px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 
+    input,
     button {
       grid-column: 1 / -1;
     }

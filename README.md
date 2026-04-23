@@ -5,7 +5,7 @@ A responsive recipe card app built with React, Vite, and styled-components.
 ## Features
 
 - Live recipe search from TheMealDB
-- Search by ingredient or cuisine
+- Search by ingredient or cuisine, with course filtering for main, starter, or dessert
 - Random recipe discovery
 - Diet preferences for vegan, vegetarian, pescatarian, or everything
 - Supabase-backed cookbook storage

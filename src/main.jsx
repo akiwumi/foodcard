@@ -2897,6 +2897,10 @@ const TextAreaInput = styled.textarea`
 const AllergyPanel = styled.div`
   display: grid;
   gap: 12px;
+
+  @media (min-width: 900px) {
+    max-width: 640px;
+  }
 `;
 
 const AllergySummary = styled.div`
@@ -2924,11 +2928,17 @@ const DialogBackdrop = styled.div`
 
 const DialogCard = styled.article`
   width: min(100%, 560px);
+  max-width: 560px;
   padding: 24px;
   background: ${theme.color.white};
   border: 1px solid rgba(217, 191, 177, 0.44);
   border-radius: 18px;
   box-shadow: ${theme.shadow.lift};
+
+  @media (min-width: 900px) {
+    width: min(100%, 520px);
+    max-width: 520px;
+  }
 
   h2 {
     margin: 0 0 8px;

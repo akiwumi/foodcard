@@ -531,7 +531,7 @@ function App() {
   const [appStage, setAppStage] = useState(initialAuthUIState.appStage);
   const [view, setView] = useState(initialAuthUIState.view);
   const [searchMode, setSearchMode] = useState('ingredient');
-  const [searchInput, setSearchInput] = useState('salmon');
+  const [searchInput, setSearchInput] = useState('');
   const [searchCategory, setSearchCategory] = useState('all');
   const [activeSearch, setActiveSearch] = useState({
     mode: 'ingredient',
@@ -917,7 +917,7 @@ function App() {
   function handleModeChange(event) {
     const nextMode = event.target.value;
     setSearchMode(nextMode);
-    setSearchInput(nextMode === 'ingredient' ? 'salmon' : 'Italian');
+    setSearchInput('');
   }
 
   function isRecipeSaved(recipe) {
@@ -1255,15 +1255,14 @@ function App() {
             <HeroCaption>
               {meal
                 ? `${meal.strCategory} from ${meal.strArea}`
-                : 'Start with salmon, pasta, or Italian cuisine, then search again to load another eight suggestions.'}
+                : ''}
             </HeroCaption>
           </HeroOverlay>
         </Hero>
 
         <Content>
-          <TitleCard>
+            <TitleCard>
             <TitleMeta>
-              <Pill>{getDietLabel(diet)}</Pill>
               <Pill>{allergyList.length ? `${allergyList.length} allergies` : 'No allergies'}</Pill>
               <Rating aria-label="Recipe source">
                 <span>★★★★★</span>
@@ -1306,7 +1305,7 @@ function App() {
                   onChange={(event) => setSearchInput(event.target.value)}
                   placeholder={
                     searchMode === 'ingredient'
-                      ? 'Try salmon, chicken, avocado, pasta...'
+                      ? 'Try chicken, avocado, pasta...'
                       : 'Try Italian, Mexican, Indian, Canadian...'
                   }
                 />

@@ -1,0 +1,17 @@
+{
+  "name": "Food Card",
+  "short_name": "Food Card",
+  "description": "Your thoughtfully curated digital cookbook for every modern kitchen.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7efe9",
+  "theme_color": "#f7efe9",
+  "icons": [
+    {
+      "src": "/food-card-logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

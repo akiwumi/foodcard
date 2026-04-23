@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import styled, { createGlobalStyle } from 'styled-components';
 import splashMobile from './assets/splash-mobile.png';
 import splashDesktop from './assets/splash-desktop.png';
+import foodCardLogo from './assets/food-card-logo.png';
 
 const theme = {
   color: {
@@ -1840,11 +1841,7 @@ function App() {
       <AppShell>
         <TopBar>
           <BrandBlock type="button" onClick={handleReturnToLandingPage} aria-label="Return to landing page">
-            <BrandDot />
-            <div>
-              <BrandName>Food Card</BrandName>
-              <BrandMeta>Recipes, settings, and cookbook sync</BrandMeta>
-            </div>
+            <BrandLogoImg src={foodCardLogo} alt="Food Card" />
           </BrandBlock>
           <TopActions>
             <ProfilePill type="button" onClick={() => handleViewChange('settings')}>
@@ -1886,10 +1883,7 @@ function SplashScreen({ onEnter }) {
       <SplashOverlay />
       <SplashContent>
         <MobileSplashLockup>
-          <SplashCircle>
-            <SplashLogoBadge>Food Card</SplashLogoBadge>
-          </SplashCircle>
-          <SplashWordmark>FOOD CARD</SplashWordmark>
+          <SplashLogoImg src={foodCardLogo} alt="Food Card" />
           <SplashRule />
           <SplashTagline>Elevate your everyday cooking</SplashTagline>
           <SplashDots>
@@ -1900,10 +1894,7 @@ function SplashScreen({ onEnter }) {
         </MobileSplashLockup>
 
         <DesktopSplashLockup>
-          <DesktopIconCard>
-            <UtensilsIcon />
-          </DesktopIconCard>
-          <DesktopTitle>Food Card</DesktopTitle>
+          <DesktopSplashLogoImg src={foodCardLogo} alt="Food Card" />
           <DesktopSubtitle>
             Your thoughtfully curated digital cookbook for every modern kitchen.
           </DesktopSubtitle>
@@ -2021,23 +2012,11 @@ const BrandBlock = styled.button`
   cursor: pointer;
 `;
 
-const BrandDot = styled.span`
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, ${theme.color.accent}, ${theme.color.primary});
-  box-shadow: 0 0 0 6px rgba(165, 88, 55, 0.12);
-`;
-
-const BrandName = styled.div`
-  font-family: 'Epilogue', system-ui, sans-serif;
-  font-size: 16px;
-  font-weight: 800;
-`;
-
-const BrandMeta = styled.div`
-  color: ${theme.color.muted};
-  font-size: 12px;
+const BrandLogoImg = styled.img`
+  height: 44px;
+  width: 44px;
+  border-radius: 10px;
+  object-fit: cover;
 `;
 
 const TopActions = styled.div`
@@ -3163,25 +3142,12 @@ const MobileSplashLockup = styled.div`
   }
 `;
 
-const SplashCircle = styled.div`
-  display: grid;
-  place-items: center;
-  width: 196px;
-  height: 196px;
-  background: rgba(255, 255, 255, 0.92);
-  border-radius: 999px;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.24);
-`;
-
-const SplashLogoBadge = styled.div`
-  display: grid;
-  place-items: center;
-  width: 100px;
-  height: 100px;
-  color: ${theme.color.primaryDark};
-  font-family: 'Epilogue', system-ui, sans-serif;
-  font-size: 18px;
-  font-weight: 800;
+const SplashLogoImg = styled.img`
+  width: 172px;
+  height: 172px;
+  border-radius: 38px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.32);
+  object-fit: cover;
 `;
 
 const SplashWordmark = styled.h1`
@@ -3202,7 +3168,7 @@ const SplashRule = styled.span`
 `;
 
 const SplashTagline = styled.p`
-  margin: 250px 0 42px;
+  margin: 40px 0 42px;
   color: rgba(255, 255, 255, 0.9);
   font-size: clamp(20px, 5vw, 28px);
   font-style: italic;
@@ -3250,6 +3216,15 @@ const DesktopSplashLockup = styled.div`
     min-height: calc(100vh - 64px);
     padding-top: 40px;
   }
+`;
+
+const DesktopSplashLogoImg = styled.img`
+  width: 200px;
+  height: 200px;
+  margin-bottom: 28px;
+  border-radius: 44px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.32);
+  object-fit: cover;
 `;
 
 const DesktopIconCard = styled.div`

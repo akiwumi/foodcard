@@ -36,6 +36,8 @@ const API_ROOT = 'https://www.themealdb.com/api/json/v1/1';
 const SPLASH_KEY = 'recipe-card-app:last-splash-dismissed-at';
 const WELCOME_PATH = '/welcome';
 const RECOVERY_PATH = '/reset-password';
+const SEARCH_PAGE_SIZE = 8;
+const LANDING_HERO_IMAGE = splashDesktop;
 const DEFAULT_AVATAR =
   'data:image/svg+xml;utf8,' +
   encodeURIComponent(`
@@ -204,7 +206,7 @@ async function lookupMeal(idMeal) {
   return detailData.meals?.[0] || null;
 }
 
-async function fetchRecipe(searchMode, query, diet, category) {
+async function fetchRecipeSuggestions(searchMode, query, diet, category, page = 0) {
   const normalizedQuery = query.trim().replace(/\s+/g, searchMode === 'ingredient' ? '_' : ' ');
   const filterKey = searchMode === 'ingredient' ? 'i' : 'a';
   const filterResponse = await fetch(
@@ -214,14 +216,34 @@ async function fetchRecipe(searchMode, query, diet, category) {
 
   const filterData = await filterResponse.json();
   const matches = filterData.meals || [];
-  if (!matches.length) return null;
+  if (!matches.length) return { recipes: [], hasMore: false };
 
-  for (const match of matches.slice(0, 12)) {
-    const meal = await lookupMeal(match.idMeal);
-    if (mealMatchesDiet(meal, diet) && mealMatchesCategory(meal, category)) return meal;
+  const validMeals = [];
+  const pageStart = page * SEARCH_PAGE_SIZE;
+  const pageEnd = pageStart + SEARCH_PAGE_SIZE;
+
+  for (let index = 0; index < matches.length && validMeals.length <= pageEnd; index += SEARCH_PAGE_SIZE) {
+    const detailBatch = await Promise.all(
+      matches.slice(index, index + SEARCH_PAGE_SIZE).map(async (match) => {
+        try {
+          return await lookupMeal(match.idMeal);
+        } catch (_error) {
+          return null;
+        }
+      })
+    );
+
+    validMeals.push(
+      ...detailBatch.filter(
+        (meal) => meal && mealMatchesDiet(meal, diet) && mealMatchesCategory(meal, category)
+      )
+    );
   }
 
-  return null;
+  return {
+    recipes: validMeals.slice(pageStart, pageEnd),
+    hasMore: validMeals.length > pageEnd,
+  };
 }
 
 async function fetchRandomRecipe(diet) {
@@ -303,9 +325,19 @@ async function removeCookbookRecipe(userId, mealId) {
 }
 
 function getRedirectUrl(path = '') {
-  const baseUrl = import.meta.env.VITE_SUPABASE_REDIRECT_URL || window.location.origin;
-  return new URL(path, baseUrl).toString();
+  return new URL(path, redirectBaseUrl).toString();
 }
+
+const redirectBaseUrl =
+  import.meta.env.VITE_SUPABASE_REDIRECT_URL || window.location.origin;
+
+window.__RECIPE_CARD_DEBUG__ = {
+  supabaseRedirectBaseUrl: redirectBaseUrl,
+  viteSupabaseRedirectUrl: import.meta.env.VITE_SUPABASE_REDIRECT_URL ?? null,
+  locationOrigin: window.location.origin,
+};
+
+console.info('[recipe-card-app] Supabase redirect config', window.__RECIPE_CARD_DEBUG__);
 
 function getAvatarUrl(path) {
   if (!supabase || !path) return '';
@@ -436,6 +468,9 @@ function App() {
   });
   const [diet, setDiet] = useState('everything');
   const [meal, setMeal] = useState(null);
+  const [recipes, setRecipes] = useState([]);
+  const [searchPage, setSearchPage] = useState(0);
+  const [hasMoreRecipes, setHasMoreRecipes] = useState(false);
   const [cookbook, setCookbook] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cookbookLoading, setCookbookLoading] = useState(false);
@@ -469,12 +504,17 @@ function App() {
   const user = session?.user || null;
   const ingredientItems = useMemo(() => getIngredients(meal), [meal]);
   const directionSteps = useMemo(() => getSteps(meal), [meal]);
-  const heroImage = meal?.strMealThumb;
-  const title = meal?.strMeal || 'Search for a recipe';
-  const category = meal?.strCategory || 'Live recipe';
-  const cuisine = meal?.strArea || 'TheMealDB';
+  const heroImage = meal?.strMealThumb || LANDING_HERO_IMAGE;
+  const title = meal?.strMeal || 'Discover eight recipe ideas at a time';
+  const category = meal?.strCategory || getCategoryLabel(searchCategory);
+  const cuisine =
+    meal?.strArea ||
+    (searchMode === 'cuisine' ? searchInput.trim() || 'Global cuisine' : 'Global cuisine');
   const avatarPreview = profile?.avatar_path ? getAvatarUrl(profile.avatar_path) : DEFAULT_AVATAR;
-  const isSaved = meal ? cookbook.some((recipe) => recipe.idMeal === meal.idMeal) : false;
+  const activeResultLabel =
+    activeSearch.mode === 'ingredient'
+      ? `Ingredient: ${activeSearch.query}`
+      : `Cuisine: ${activeSearch.query}`;
   const settingsDirty =
     settingsDraft.displayName !== (profile?.display_name || '') ||
     settingsDraft.diet !== (profile?.diet_preference || 'everything');
@@ -613,34 +653,43 @@ function App() {
       setError('');
 
       try {
-        const data = await fetchRecipe(
+        const data = await fetchRecipeSuggestions(
           activeSearch.mode,
           activeSearch.query,
           diet,
-          activeSearch.category
+          activeSearch.category,
+          searchPage
         );
         if (!isCurrent) return;
 
-        if (!data) {
+        if (!data.recipes.length) {
+          setRecipes([]);
+          setHasMoreRecipes(false);
           setMeal(null);
           const courseText =
             activeSearch.category === 'all'
               ? ''
               : ` in ${getCategoryLabel(activeSearch.category).toLowerCase()}`;
           setError(
-            `No${courseText} recipes found for "${activeSearch.query}" with your ${getDietLabel(diet).toLowerCase()} setting. Try ${
-              activeSearch.mode === 'ingredient'
-                ? 'chicken, beef, avocado, or pasta'
-                : 'Italian, Mexican, Indian, or Canadian'
-            }.`
+            searchPage > 0
+              ? `No more${courseText} recipes were found for "${activeSearch.query}" with your ${getDietLabel(diet).toLowerCase()} setting. Try a new search to refresh the next eight.`
+              : `No${courseText} recipes found for "${activeSearch.query}" with your ${getDietLabel(diet).toLowerCase()} setting. Try ${
+                  activeSearch.mode === 'ingredient'
+                    ? 'chicken, beef, avocado, or pasta'
+                    : 'Italian, Mexican, Indian, or Canadian'
+                }.`
           );
           return;
         }
 
-        setMeal(data);
+        setRecipes(data.recipes);
+        setHasMoreRecipes(data.hasMore);
+        setMeal(data.recipes[0]);
       } catch (fetchError) {
         if (!isCurrent) return;
         setError(fetchError.message || 'Could not load recipes right now.');
+        setRecipes([]);
+        setHasMoreRecipes(false);
         setMeal(null);
       } finally {
         if (isCurrent) setLoading(false);
@@ -652,7 +701,7 @@ function App() {
     return () => {
       isCurrent = false;
     };
-  }, [activeSearch, diet]);
+  }, [activeSearch, diet, searchPage]);
 
   function scrollToContent() {
     window.requestAnimationFrame(() => {
@@ -676,6 +725,21 @@ function App() {
     const nextQuery = searchInput.trim();
     if (!nextQuery) return;
 
+    const sameSearch =
+      activeSearch.mode === searchMode &&
+      activeSearch.query.toLowerCase() === nextQuery.toLowerCase() &&
+      activeSearch.category === searchCategory;
+
+    if (sameSearch) {
+      if (!hasMoreRecipes) {
+        setError('No more recipe suggestions are available for this search. Try a new ingredient or cuisine.');
+        return;
+      }
+      setSearchPage((currentPage) => currentPage + 1);
+      return;
+    }
+
+    setSearchPage(0);
     setActiveSearch({ mode: searchMode, query: nextQuery, category: searchCategory });
     setView('discover');
   }
@@ -689,12 +753,17 @@ function App() {
     try {
       const randomMeal = await fetchRandomRecipe(diet);
       if (!randomMeal) {
+        setRecipes([]);
+        setHasMoreRecipes(false);
         setMeal(null);
         setError(
           `No random recipes matched your ${getDietLabel(diet).toLowerCase()} setting. Try another preference.`
         );
         return;
       }
+      setRecipes([randomMeal]);
+      setHasMoreRecipes(false);
+      setSearchPage(0);
       setMeal(randomMeal);
     } catch (discoverError) {
       setError(discoverError.message || 'Could not discover a recipe right now.');
@@ -709,15 +778,40 @@ function App() {
     setSearchInput(nextMode === 'ingredient' ? 'salmon' : 'Italian');
   }
 
-  async function handleSaveRecipe() {
-    if (!meal || isSaved || !user) return;
+  function isRecipeSaved(recipe) {
+    return cookbook.some((savedRecipe) => savedRecipe.idMeal === recipe.idMeal);
+  }
+
+  async function handleToggleRecipeSave(recipe) {
+    if (!recipe) return;
+
+    if (!user) {
+      setCookbookError('Sign in from Settings to save recipes to your cookbook.');
+      setView('settings');
+      return;
+    }
+
+    const recipeIsSaved = isRecipeSaved(recipe);
 
     try {
-      await saveCookbookRecipe(user.id, meal);
-      setCookbook((currentCookbook) => [meal, ...currentCookbook]);
+      if (recipeIsSaved) {
+        await removeCookbookRecipe(user.id, recipe.idMeal);
+        setCookbook((currentCookbook) =>
+          currentCookbook.filter((savedRecipe) => savedRecipe.idMeal !== recipe.idMeal)
+        );
+      } else {
+        await saveCookbookRecipe(user.id, recipe);
+        setCookbook((currentCookbook) => [recipe, ...currentCookbook]);
+      }
+
       setCookbookError('');
     } catch (storageError) {
-      setCookbookError(storageError.message || 'Could not save recipe to Supabase.');
+      setCookbookError(
+        storageError.message ||
+          (recipeIsSaved
+            ? 'Could not remove recipe from Supabase.'
+            : 'Could not save recipe to Supabase.')
+      );
     }
   }
 
@@ -736,9 +830,21 @@ function App() {
   }
 
   function handleOpenSavedRecipe(recipe) {
+    setRecipes([recipe]);
+    setHasMoreRecipes(false);
+    setSearchPage(0);
     setMeal(recipe);
     setView('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function handleSelectRecipe(recipe) {
+    setMeal(recipe);
+  }
+
+  function handleLoadMoreSuggestions() {
+    if (loading || !hasMoreRecipes) return;
+    setSearchPage((currentPage) => currentPage + 1);
   }
 
   function handleViewChange(nextView) {
@@ -965,7 +1071,21 @@ function App() {
   function renderDiscoverPage() {
     return (
       <>
-        <Hero>{heroImage ? <HeroImage src={heroImage} alt={title} /> : <HeroEmpty />}</Hero>
+        <Hero>
+          <HeroImage src={heroImage} alt={title} />
+          <HeroScrim />
+          <HeroOverlay>
+            <HeroKicker>{meal ? `Featured ${meal.strArea} recipe` : 'Cuisine spotlight'}</HeroKicker>
+            <HeroHeadline>
+              {meal ? meal.strMeal : 'Search ingredients or cuisines and get eight fresh recipe ideas'}
+            </HeroHeadline>
+            <HeroCaption>
+              {meal
+                ? `${meal.strCategory} from ${meal.strArea}`
+                : 'Start with salmon, pasta, or Italian cuisine, then search again to load another eight suggestions.'}
+            </HeroCaption>
+          </HeroOverlay>
+        </Hero>
 
         <Content>
           <TitleCard>
@@ -973,7 +1093,13 @@ function App() {
               <Pill>{getDietLabel(diet)}</Pill>
               <Rating aria-label="Recipe source">
                 <span>★★★★★</span>
-                <small>{loading ? 'Loading live recipe' : `Live from ${cuisine}`}</small>
+                <small>
+                  {loading
+                    ? 'Loading live recipes'
+                    : recipes.length
+                      ? `${recipes.length} live picks for ${activeResultLabel}`
+                      : `Live from ${cuisine}`}
+                </small>
               </Rating>
             </TitleMeta>
             <h1>{title}</h1>
@@ -1036,31 +1162,70 @@ function App() {
               </Stat>
               <Stat>
                 <FlameIcon />
-                <span>Items</span>
-                <strong>{ingredientItems.length}</strong>
+                <span>Suggestions</span>
+                <strong>{recipes.length || '0'}</strong>
               </Stat>
             </Stats>
             <ActionRow>
-              <PrimaryButton
-                type="button"
-                onClick={handleSaveRecipe}
-                disabled={!meal || isSaved || !user}
-              >
-                <BookIcon />
-                {!user
-                  ? 'Sign in to save'
-                  : isSaved
-                    ? 'Saved to cookbook'
-                    : 'Save to cookbook'}
-              </PrimaryButton>
               <SecondaryButton type="button" onClick={handleDiscoverRandom} disabled={loading}>
                 <CompassIcon />
                 Surprise me
               </SecondaryButton>
+              <PrimaryButton
+                type="button"
+                onClick={handleLoadMoreSuggestions}
+                disabled={loading || !hasMoreRecipes}
+              >
+                <SearchIcon />
+                {loading && searchPage > 0 ? 'Loading more' : 'Next 8 suggestions'}
+              </PrimaryButton>
             </ActionRow>
           </TitleCard>
 
           <ViewContent ref={viewContentRef}>
+            {recipes.length ? (
+              <SuggestionsSection>
+                <SectionTitle>
+                  Search suggestions <small>{activeResultLabel}</small>
+                </SectionTitle>
+                <SuggestionGrid>
+                  {recipes.map((recipe) => {
+                    const recipeSaved = isRecipeSaved(recipe);
+                    const isActiveRecipe = meal?.idMeal === recipe.idMeal;
+
+                    return (
+                      <SuggestionCard key={recipe.idMeal} $active={isActiveRecipe}>
+                        <SuggestionImageButton
+                          type="button"
+                          onClick={() => handleSelectRecipe(recipe)}
+                          aria-pressed={isActiveRecipe}
+                        >
+                          <img src={recipe.strMealThumb} alt={recipe.strMeal} />
+                          <SuggestionBody>
+                            <strong>{recipe.strMeal}</strong>
+                            <small>
+                              {recipe.strCategory} · {recipe.strArea}
+                            </small>
+                          </SuggestionBody>
+                        </SuggestionImageButton>
+                        <HeartButton
+                          type="button"
+                          onClick={() => handleToggleRecipeSave(recipe)}
+                          aria-label={
+                            recipeSaved
+                              ? `Remove ${recipe.strMeal} from cookbook`
+                              : `Save ${recipe.strMeal} to cookbook`
+                          }
+                          $active={recipeSaved}
+                        >
+                          <HeartIcon filled={recipeSaved} />
+                        </HeartButton>
+                      </SuggestionCard>
+                    );
+                  })}
+                </SuggestionGrid>
+              </SuggestionsSection>
+            ) : null}
             {meal ? (
               <RecipeGrid>
                 <IngredientsPanel>
@@ -1636,6 +1801,7 @@ const Svg = styled.svg`
 `;
 
 const Hero = styled.section`
+  position: relative;
   height: clamp(360px, 52vw, 620px);
   overflow: hidden;
   background: ${theme.color.dark};
@@ -1648,12 +1814,52 @@ const HeroImage = styled.img`
   filter: saturate(1.04);
 `;
 
-const HeroEmpty = styled.div`
-  width: 100%;
-  height: 100%;
+const HeroScrim = styled.div`
+  position: absolute;
+  inset: 0;
   background:
-    linear-gradient(135deg, rgba(18, 17, 15, 0.9), rgba(53, 94, 87, 0.55)),
-    ${theme.color.dark};
+    linear-gradient(180deg, rgba(11, 10, 9, 0.18), rgba(11, 10, 9, 0.66)),
+    linear-gradient(120deg, rgba(53, 94, 87, 0.16), rgba(165, 88, 55, 0.42));
+`;
+
+const HeroOverlay = styled.div`
+  position: absolute;
+  inset: auto auto 0 0;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  width: min(640px, calc(100% - 32px));
+  padding: clamp(22px, 4vw, 42px);
+  color: ${theme.color.white};
+`;
+
+const HeroKicker = styled.span`
+  display: inline-flex;
+  width: fit-content;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+`;
+
+const HeroHeadline = styled.h2`
+  margin: 0;
+  font-family: 'Epilogue', system-ui, sans-serif;
+  font-size: clamp(30px, 5vw, 58px);
+  line-height: 1.03;
+`;
+
+const HeroCaption = styled.p`
+  max-width: 560px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: clamp(14px, 1.7vw, 18px);
+  line-height: 1.6;
 `;
 
 const Content = styled.main`
@@ -1958,6 +2164,95 @@ const SecondaryButton = styled.button`
 
 const ViewContent = styled.div`
   scroll-margin-top: 96px;
+`;
+
+const SuggestionsSection = styled.section`
+  margin-top: 32px;
+`;
+
+const SuggestionGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+
+  @media (max-width: 1080px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @media (max-width: 820px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 560px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+`;
+
+const SuggestionCard = styled.article`
+  position: relative;
+  overflow: hidden;
+  background: ${theme.color.white};
+  border: 1px solid
+    ${({ $active }) =>
+      $active ? 'rgba(165, 88, 55, 0.66)' : 'rgba(217, 191, 177, 0.44)'};
+  border-radius: 16px;
+  box-shadow: ${({ $active }) =>
+    $active ? '0 18px 44px rgba(165, 88, 55, 0.18)' : theme.shadow.soft};
+`;
+
+const SuggestionImageButton = styled.button`
+  display: grid;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+
+  img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+  }
+`;
+
+const SuggestionBody = styled.span`
+  display: grid;
+  gap: 6px;
+  min-height: 110px;
+  padding: 14px;
+
+  strong {
+    font-family: 'Epilogue', system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.35;
+  }
+
+  small {
+    color: ${theme.color.muted};
+    font-size: 12px;
+    font-weight: 700;
+  }
+`;
+
+const HeartButton = styled.button`
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: ${({ $active }) => ($active ? theme.color.white : theme.color.primaryDark)};
+  background: ${({ $active }) =>
+    $active ? theme.color.primary : 'rgba(255, 250, 247, 0.92)'};
+  border: 1px solid
+    ${({ $active }) =>
+      $active ? theme.color.primaryDark : 'rgba(255, 250, 247, 0.96)'};
+  border-radius: 999px;
+  box-shadow: 0 14px 28px rgba(21, 14, 11, 0.18);
+  cursor: pointer;
 `;
 
 const RecipeGrid = styled.div`
@@ -2691,6 +2986,14 @@ function BookIcon() {
       <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H20v16H7.5A2.5 2.5 0 0 0 5 21.5z" />
       <path d="M5 5.5v16" />
       <path d="M9 7h7" />
+    </Icon>
+  );
+}
+
+function HeartIcon({ filled = false }) {
+  return (
+    <Icon filled={filled}>
+      <path d="M12 20s-7-4.4-7-10.1C5 7 6.9 5 9.3 5c1.3 0 2.2.5 2.7 1.4.5-.9 1.4-1.4 2.7-1.4C17.1 5 19 7 19 9.9 19 15.6 12 20 12 20z" />
     </Icon>
   );
 }

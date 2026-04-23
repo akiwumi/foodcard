@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
 import styled, { createGlobalStyle } from 'styled-components';
@@ -303,6 +303,7 @@ function App() {
   const [cookbookLoading, setCookbookLoading] = useState(false);
   const [error, setError] = useState('');
   const [cookbookError, setCookbookError] = useState('');
+  const viewContentRef = useRef(null);
   const isSaved = meal ? cookbook.some((recipe) => recipe.idMeal === meal.idMeal) : false;
 
   useEffect(() => {
@@ -400,6 +401,7 @@ function App() {
 
   async function handleDiscoverRandom() {
     setView('recipe');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     setLoading(true);
     setError('');
 
@@ -455,6 +457,13 @@ function App() {
   function handleDietChange(nextDiet) {
     setDiet(nextDiet);
     storeDiet(nextDiet);
+  }
+
+  function handleViewChange(nextView) {
+    setView(nextView);
+    window.requestAnimationFrame(() => {
+      viewContentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 
   return (
@@ -559,101 +568,103 @@ function App() {
             </PrimaryButton>
           </TitleCard>
 
-          {view === 'settings' ? (
-            <SettingsPage>
-              <SectionTitle>Settings</SectionTitle>
-              <SettingsCard>
-                <h2>Diet preference</h2>
-                <p>Recipe search and random discovery will only show meals that match this setting.</p>
-                <DietGrid>
-                  {dietOptions.map(([value, label]) => (
-                    <DietButton
-                      key={value}
-                      type="button"
-                      onClick={() => handleDietChange(value)}
-                      $active={diet === value}
-                    >
-                      {label}
-                    </DietButton>
-                  ))}
-                </DietGrid>
-              </SettingsCard>
-            </SettingsPage>
-          ) : view === 'cookbook' ? (
-            <CookbookView>
-              <SectionTitle>
-                Cookbook <small>({cookbook.length} saved)</small>
-              </SectionTitle>
-              {cookbookLoading ? (
-                <EmptyState>Loading your Supabase cookbook...</EmptyState>
-              ) : cookbook.length ? (
-                <SavedGrid>
-                  {cookbook.map((recipe) => (
-                    <SavedCard key={recipe.idMeal}>
-                      <button type="button" onClick={() => handleOpenSavedRecipe(recipe)}>
-                        <img src={recipe.strMealThumb} alt="" />
-                        <span>
-                          <strong>{recipe.strMeal}</strong>
-                          <small>
-                            {recipe.strCategory} · {recipe.strArea}
-                          </small>
-                        </span>
-                      </button>
-                      <RemoveButton
+          <ViewContent ref={viewContentRef}>
+            {view === 'settings' ? (
+              <SettingsPage>
+                <SectionTitle>Settings</SectionTitle>
+                <SettingsCard>
+                  <h2>Diet preference</h2>
+                  <p>Recipe search and random discovery will only show meals that match this setting.</p>
+                  <DietGrid>
+                    {dietOptions.map(([value, label]) => (
+                      <DietButton
+                        key={value}
                         type="button"
-                        onClick={() => handleRemoveSavedRecipe(recipe.idMeal)}
+                        onClick={() => handleDietChange(value)}
+                        $active={diet === value}
                       >
-                        Remove
-                      </RemoveButton>
-                    </SavedCard>
-                  ))}
-                </SavedGrid>
-              ) : (
-                <EmptyState>
-                  Your cookbook is empty. Search for a recipe, then save it to keep it here.
-                </EmptyState>
-              )}
-            </CookbookView>
-          ) : meal ? (
-            <RecipeGrid>
-              <IngredientsPanel>
+                        {label}
+                      </DietButton>
+                    ))}
+                  </DietGrid>
+                </SettingsCard>
+              </SettingsPage>
+            ) : view === 'cookbook' ? (
+              <CookbookView>
                 <SectionTitle>
-                  Ingredients <small>({ingredientItems.length} items)</small>
+                  Cookbook <small>({cookbook.length} saved)</small>
                 </SectionTitle>
-                <IngredientList>
-                  {ingredientItems.map(([name, note]) => (
-                    <Ingredient key={name}>
-                      <input type="checkbox" />
-                      <span>
-                        <strong>{name}</strong>
-                        <small>{note}</small>
-                      </span>
-                    </Ingredient>
-                  ))}
-                </IngredientList>
-              </IngredientsPanel>
+                {cookbookLoading ? (
+                  <EmptyState>Loading your Supabase cookbook...</EmptyState>
+                ) : cookbook.length ? (
+                  <SavedGrid>
+                    {cookbook.map((recipe) => (
+                      <SavedCard key={recipe.idMeal}>
+                        <button type="button" onClick={() => handleOpenSavedRecipe(recipe)}>
+                          <img src={recipe.strMealThumb} alt="" />
+                          <span>
+                            <strong>{recipe.strMeal}</strong>
+                            <small>
+                              {recipe.strCategory} · {recipe.strArea}
+                            </small>
+                          </span>
+                        </button>
+                        <RemoveButton
+                          type="button"
+                          onClick={() => handleRemoveSavedRecipe(recipe.idMeal)}
+                        >
+                          Remove
+                        </RemoveButton>
+                      </SavedCard>
+                    ))}
+                  </SavedGrid>
+                ) : (
+                  <EmptyState>
+                    Your cookbook is empty. Search for a recipe, then save it to keep it here.
+                  </EmptyState>
+                )}
+              </CookbookView>
+            ) : meal ? (
+              <RecipeGrid>
+                <IngredientsPanel>
+                  <SectionTitle>
+                    Ingredients <small>({ingredientItems.length} items)</small>
+                  </SectionTitle>
+                  <IngredientList>
+                    {ingredientItems.map(([name, note]) => (
+                      <Ingredient key={name}>
+                        <input type="checkbox" />
+                        <span>
+                          <strong>{name}</strong>
+                          <small>{note}</small>
+                        </span>
+                      </Ingredient>
+                    ))}
+                  </IngredientList>
+                </IngredientsPanel>
 
-              <Directions>
-                <SectionTitle>Directions</SectionTitle>
-                <StepList>
-                  {directionSteps.map((step, index) => (
-                    <Step key={step.title}>
-                      <StepNumber>{index + 1}</StepNumber>
-                      <StepBody>
-                        <h3>{step.title}</h3>
-                        <p>{step.body}</p>
-                        {step.image ? <StepImage src={step.image} alt={title} /> : null}
-                      </StepBody>
-                    </Step>
-                  ))}
-                </StepList>
-              </Directions>
-            </RecipeGrid>
-          ) : (
-            <EmptyState>
-              {loading ? 'Loading a live recipe...' : 'Search for an ingredient to load a recipe.'}
-            </EmptyState>
-          )}
+                <Directions>
+                  <SectionTitle>Directions</SectionTitle>
+                  <StepList>
+                    {directionSteps.map((step, index) => (
+                      <Step key={step.title}>
+                        <StepNumber>{index + 1}</StepNumber>
+                        <StepBody>
+                          <h3>{step.title}</h3>
+                          <p>{step.body}</p>
+                          {step.image ? <StepImage src={step.image} alt={title} /> : null}
+                        </StepBody>
+                      </Step>
+                    ))}
+                  </StepList>
+                </Directions>
+              </RecipeGrid>
+            ) : (
+              <EmptyState>
+                {loading ? 'Loading a live recipe...' : 'Search for an ingredient to load a recipe.'}
+              </EmptyState>
+            )}
+          </ViewContent>
         </Content>
 
         <BottomNav aria-label="Primary">
@@ -661,11 +672,11 @@ function App() {
             <CompassIcon />
             Discover
           </NavItem>
-          <NavItem type="button" onClick={() => setView('cookbook')} $active={view === 'cookbook'}>
+          <NavItem type="button" onClick={() => handleViewChange('cookbook')} $active={view === 'cookbook'}>
             <BookIcon />
             Cookbook
           </NavItem>
-          <NavItem type="button" onClick={() => setView('settings')} $active={view === 'settings'}>
+          <NavItem type="button" onClick={() => handleViewChange('settings')} $active={view === 'settings'}>
             <SettingsIcon />
             Settings
           </NavItem>
@@ -1028,6 +1039,10 @@ const PrimaryButton = styled.button`
     opacity: 0.74;
     transform: none;
   }
+`;
+
+const ViewContent = styled.div`
+  scroll-margin-top: 84px;
 `;
 
 const RecipeGrid = styled.div`

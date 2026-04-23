@@ -36,6 +36,7 @@ const API_ROOT = 'https://www.themealdb.com/api/json/v1/1';
 const SPLASH_KEY = 'recipe-card-app:last-splash-dismissed-at';
 const WELCOME_PATH = '/welcome';
 const RECOVERY_PATH = '/reset-password';
+const RECIPE_PATH_PREFIX = '/recipe/';
 const SEARCH_PAGE_SIZE = 8;
 const LANDING_HERO_IMAGE = splashDesktop;
 const DEFAULT_AVATAR =
@@ -422,9 +423,18 @@ function getAuthCallbackType() {
   );
 }
 
+function getRecipeIdFromPath() {
+  const pathname = window.location.pathname;
+  if (!pathname.startsWith(RECIPE_PATH_PREFIX)) return null;
+
+  const recipeId = pathname.slice(RECIPE_PATH_PREFIX.length).split('/')[0];
+  return recipeId ? decodeURIComponent(recipeId) : null;
+}
+
 function getInitialAuthUIState() {
   const pathname = window.location.pathname;
   const callbackType = getAuthCallbackType();
+  const recipeId = getRecipeIdFromPath();
 
   if (callbackType === 'recovery' || pathname === RECOVERY_PATH) {
     return {
@@ -446,6 +456,16 @@ function getInitialAuthUIState() {
         callbackType === 'signup'
           ? 'Welcome to Food Card. Your email has been confirmed.'
           : 'Welcome back. Your authentication link worked.',
+    };
+  }
+
+  if (recipeId) {
+    return {
+      appStage: 'main',
+      view: 'discover',
+      authMode: 'login',
+      authMessage: '',
+      welcomeMessage: 'Your account is ready.',
     };
   }
 
@@ -506,6 +526,8 @@ function Icon({ children, filled = false }) {
 
 function App() {
   const initialAuthUIState = getInitialAuthUIState();
+  const standaloneRecipeId = getRecipeIdFromPath();
+  const isStandaloneRecipePage = Boolean(standaloneRecipeId);
   const [appStage, setAppStage] = useState(initialAuthUIState.appStage);
   const [view, setView] = useState(initialAuthUIState.view);
   const [searchMode, setSearchMode] = useState('ingredient');
@@ -518,7 +540,9 @@ function App() {
   });
   const [diet, setDiet] = useState('everything');
   const [meal, setMeal] = useState(null);
-  const [isRecipeCardOpen, setIsRecipeCardOpen] = useState(false);
+  const [standaloneRecipe, setStandaloneRecipe] = useState(null);
+  const [standaloneRecipeLoading, setStandaloneRecipeLoading] = useState(isStandaloneRecipePage);
+  const [standaloneRecipeError, setStandaloneRecipeError] = useState('');
   const [recipes, setRecipes] = useState([]);
   const [searchPage, setSearchPage] = useState(0);
   const [hasMoreRecipes, setHasMoreRecipes] = useState(false);
@@ -557,13 +581,14 @@ function App() {
   const viewContentRef = useRef(null);
 
   const user = session?.user || null;
-  const ingredientItems = useMemo(() => getIngredients(meal), [meal]);
-  const directionSteps = useMemo(() => getSteps(meal), [meal]);
-  const heroImage = meal?.strMealThumb || LANDING_HERO_IMAGE;
-  const title = meal?.strMeal || 'Discover eight recipe ideas at a time';
-  const category = meal?.strCategory || getCategoryLabel(searchCategory);
+  const displayMeal = isStandaloneRecipePage ? standaloneRecipe : meal;
+  const ingredientItems = useMemo(() => getIngredients(displayMeal), [displayMeal]);
+  const directionSteps = useMemo(() => getSteps(displayMeal), [displayMeal]);
+  const heroImage = displayMeal?.strMealThumb || LANDING_HERO_IMAGE;
+  const title = displayMeal?.strMeal || 'Discover eight recipe ideas at a time';
+  const category = displayMeal?.strCategory || getCategoryLabel(searchCategory);
   const cuisine =
-    meal?.strArea ||
+    displayMeal?.strArea ||
     (searchMode === 'cuisine' ? searchInput.trim() || 'Global cuisine' : 'Global cuisine');
   const avatarPreview = profile?.avatar_path ? getAvatarUrl(profile.avatar_path) : DEFAULT_AVATAR;
   const activeResultLabel =
@@ -712,6 +737,11 @@ function App() {
     let isCurrent = true;
 
     async function loadRecipe() {
+      if (isStandaloneRecipePage) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError('');
 
@@ -730,7 +760,6 @@ function App() {
           setRecipes([]);
           setHasMoreRecipes(false);
           setMeal(null);
-          setIsRecipeCardOpen(false);
           const courseText =
             activeSearch.category === 'all'
               ? ''
@@ -750,14 +779,12 @@ function App() {
         setRecipes(data.recipes);
         setHasMoreRecipes(data.hasMore);
         setMeal(data.recipes[0]);
-        setIsRecipeCardOpen(false);
       } catch (fetchError) {
         if (!isCurrent) return;
         setError(fetchError.message || 'Could not load recipes right now.');
         setRecipes([]);
         setHasMoreRecipes(false);
         setMeal(null);
-        setIsRecipeCardOpen(false);
       } finally {
         if (isCurrent) setLoading(false);
       }
@@ -768,7 +795,43 @@ function App() {
     return () => {
       isCurrent = false;
     };
-  }, [activeSearch, diet, allergies, searchPage]);
+  }, [activeSearch, diet, allergies, searchPage, isStandaloneRecipePage]);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadStandaloneRecipe() {
+      if (!standaloneRecipeId) return;
+
+      setStandaloneRecipeLoading(true);
+      setStandaloneRecipeError('');
+
+      try {
+        const recipe = await lookupMeal(standaloneRecipeId);
+        if (!isCurrent) return;
+
+        if (!recipe) {
+          setStandaloneRecipe(null);
+          setStandaloneRecipeError('That recipe card could not be found.');
+          return;
+        }
+
+        setStandaloneRecipe(recipe);
+      } catch (recipeError) {
+        if (!isCurrent) return;
+        setStandaloneRecipe(null);
+        setStandaloneRecipeError(recipeError.message || 'Could not load this recipe card.');
+      } finally {
+        if (isCurrent) setStandaloneRecipeLoading(false);
+      }
+    }
+
+    loadStandaloneRecipe();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [standaloneRecipeId]);
 
   function scrollToContent() {
     window.requestAnimationFrame(() => {
@@ -790,6 +853,13 @@ function App() {
   function handleReturnToLandingPage() {
     setAppStage('splash');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function openRecipeCardWindow(recipe) {
+    if (!recipe?.idMeal) return;
+
+    const recipeUrl = new URL(`${RECIPE_PATH_PREFIX}${recipe.idMeal}`, window.location.origin);
+    window.open(recipeUrl.toString(), '_blank');
   }
 
   function handleSubmit(event) {
@@ -828,7 +898,6 @@ function App() {
         setRecipes([]);
         setHasMoreRecipes(false);
         setMeal(null);
-        setIsRecipeCardOpen(false);
         setError(
           `No random ${getCategoryLabel(searchCategory).toLowerCase()} recipes matched your preferences. Try another meal type or update your settings.`
         );
@@ -838,7 +907,6 @@ function App() {
       setHasMoreRecipes(false);
       setSearchPage(0);
       setMeal(randomMeals[0]);
-      setIsRecipeCardOpen(false);
     } catch (discoverError) {
       setError(discoverError.message || 'Could not discover a recipe right now.');
     } finally {
@@ -904,24 +972,20 @@ function App() {
   }
 
   function handleOpenSavedRecipe(recipe) {
-    setRecipes([recipe]);
-    setHasMoreRecipes(false);
-    setSearchPage(0);
-    setMeal(recipe);
-    setIsRecipeCardOpen(true);
-    setView('discover');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    openRecipeCardWindow(recipe);
   }
 
   function handleSelectRecipe(recipe) {
-    setMeal(recipe);
-    setIsRecipeCardOpen(true);
-    scrollToContent();
+    openRecipeCardWindow(recipe);
   }
 
-  function handleReturnToResults() {
-    setIsRecipeCardOpen(false);
-    scrollToContent();
+  function handleStandaloneRecipeBack() {
+    if (window.opener && !window.opener.closed) {
+      window.close();
+      return;
+    }
+
+    window.location.assign('/');
   }
 
   function handleLoadMoreSuggestions() {
@@ -1301,14 +1365,13 @@ function App() {
                 <SuggestionGrid>
                   {recipes.map((recipe) => {
                     const recipeSaved = isRecipeSaved(recipe);
-                    const isActiveRecipe = meal?.idMeal === recipe.idMeal;
 
                     return (
-                      <SuggestionCard key={recipe.idMeal} $active={isActiveRecipe}>
+                      <SuggestionCard key={recipe.idMeal}>
                         <SuggestionImageButton
                           type="button"
                           onClick={() => handleSelectRecipe(recipe)}
-                          aria-pressed={isActiveRecipe}
+                          aria-label={`Open ${recipe.strMeal} recipe card in a new window`}
                         >
                           <img src={recipe.strMealThumb} alt={recipe.strMeal} />
                           <SuggestionBody>
@@ -1336,53 +1399,89 @@ function App() {
                 </SuggestionGrid>
               </SuggestionsSection>
             ) : null}
-            {meal && isRecipeCardOpen ? (
-              <RecipeGrid>
-                <IngredientsPanel>
-                  <RecipeCardBackButton type="button" onClick={handleReturnToResults}>
-                    <ArrowLeftIcon />
-                    Return to results
-                  </RecipeCardBackButton>
-                  <SectionTitle>
-                    Ingredients <small>({ingredientItems.length} items)</small>
-                  </SectionTitle>
-                  <IngredientList>
-                    {ingredientItems.map(([name, note]) => (
-                      <Ingredient key={name}>
-                        <input type="checkbox" />
-                        <span>
-                          <strong>{name}</strong>
-                          <small>{note}</small>
-                        </span>
-                      </Ingredient>
-                    ))}
-                  </IngredientList>
-                </IngredientsPanel>
-
-                <Directions>
-                  <SectionTitle>Directions</SectionTitle>
-                  <StepList>
-                    {directionSteps.map((step, index) => (
-                      <Step key={step.title}>
-                        <StepNumber>{index + 1}</StepNumber>
-                        <StepBody>
-                          <h3>{step.title}</h3>
-                          <p>{step.body}</p>
-                          {step.image ? <StepImage src={step.image} alt={title} /> : null}
-                        </StepBody>
-                      </Step>
-                    ))}
-                  </StepList>
-                </Directions>
-              </RecipeGrid>
-            ) : (
+            {!recipes.length ? (
               <EmptyState>
                 {loading ? 'Loading a live recipe...' : 'Search for an ingredient to load a recipe.'}
               </EmptyState>
-            )}
+            ) : null}
           </ViewContent>
         </Content>
       </>
+    );
+  }
+
+  function renderStandaloneRecipePage() {
+    return (
+      <StandaloneContent>
+        <StandaloneHeader>
+          <RecipeCardBackButton type="button" onClick={handleStandaloneRecipeBack}>
+            <ArrowLeftIcon />
+            Back to search
+          </RecipeCardBackButton>
+          <StandaloneIntro>
+            This recipe card opens in its own window so the search results can stay put.
+          </StandaloneIntro>
+        </StandaloneHeader>
+
+        {standaloneRecipeLoading ? (
+          <EmptyState>Loading recipe card...</EmptyState>
+        ) : standaloneRecipeError || !displayMeal ? (
+          <EmptyState>{standaloneRecipeError || 'This recipe card is unavailable.'}</EmptyState>
+        ) : (
+          <>
+            <TitleCard as="section">
+              <TitleMeta>
+                <Pill>{displayMeal.strCategory || 'Recipe'}</Pill>
+                <Pill>{displayMeal.strArea || 'Global cuisine'}</Pill>
+                <Rating aria-label="Recipe source">
+                  <span>★★★★★</span>
+                  <small>Live recipe card</small>
+                </Rating>
+              </TitleMeta>
+              <h1>{displayMeal.strMeal}</h1>
+              <StandaloneIntro>
+                Open this alongside your results to compare options while keeping the full
+                ingredients and directions visible here.
+              </StandaloneIntro>
+            </TitleCard>
+
+            <RecipeGrid>
+              <IngredientsPanel>
+                <SectionTitle>
+                  Ingredients <small>({ingredientItems.length} items)</small>
+                </SectionTitle>
+                <IngredientList>
+                  {ingredientItems.map(([name, note]) => (
+                    <Ingredient key={name}>
+                      <input type="checkbox" />
+                      <span>
+                        <strong>{name}</strong>
+                        <small>{note}</small>
+                      </span>
+                    </Ingredient>
+                  ))}
+                </IngredientList>
+              </IngredientsPanel>
+
+              <Directions>
+                <SectionTitle>Directions</SectionTitle>
+                <StepList>
+                  {directionSteps.map((step, index) => (
+                    <Step key={step.title}>
+                      <StepNumber>{index + 1}</StepNumber>
+                      <StepBody>
+                        <h3>{step.title}</h3>
+                        <p>{step.body}</p>
+                        {step.image ? <StepImage src={step.image} alt={displayMeal.strMeal} /> : null}
+                      </StepBody>
+                    </Step>
+                  ))}
+                </StepList>
+              </Directions>
+            </RecipeGrid>
+          </>
+        )}
+      </StandaloneContent>
     );
   }
 
@@ -1723,6 +1822,15 @@ function App() {
           message={welcomeMessage}
           onContinue={handleContinueFromWelcome}
         />
+      </ThemeProviderWrapper>
+    );
+  }
+
+  if (isStandaloneRecipePage) {
+    return (
+      <ThemeProviderWrapper>
+        <GlobalStyle />
+        {renderStandaloneRecipePage()}
       </ThemeProviderWrapper>
     );
   }

@@ -487,11 +487,6 @@ function App() {
               </SearchRow>
               {error ? <SearchMessage role="status">{error}</SearchMessage> : null}
             </SearchPanel>
-            {!supabase ? (
-              <SearchMessage role="status">
-                Add Supabase env vars to save recipes to your cookbook.
-              </SearchMessage>
-            ) : null}
             {cookbookError ? <SearchMessage role="status">{cookbookError}</SearchMessage> : null}
             <Stats>
               <Stat>
@@ -510,9 +505,9 @@ function App() {
                 <strong>{ingredientItems.length}</strong>
               </Stat>
             </Stats>
-            <PrimaryButton type="button" onClick={handleSaveRecipe} disabled={!meal || isSaved || !supabase || !profileId}>
+            <PrimaryButton type="button" onClick={handleSaveRecipe} disabled={!meal || isSaved || !profileId}>
               <BookIcon />
-              {!supabase ? 'Connect Supabase to save' : isSaved ? 'Saved to cookbook' : 'Save to cookbook'}
+              {isSaved ? 'Saved to cookbook' : 'Save to cookbook'}
             </PrimaryButton>
           </TitleCard>
 
@@ -541,12 +536,7 @@ function App() {
               <SectionTitle>
                 Cookbook <small>({cookbook.length} saved)</small>
               </SectionTitle>
-              {!supabase ? (
-                <EmptyState>
-                  Supabase is not configured yet. Add <code>VITE_SUPABASE_URL</code> and{' '}
-                  <code>VITE_SUPABASE_ANON_KEY</code>, then reload the app.
-                </EmptyState>
-              ) : cookbookLoading ? (
+              {cookbookLoading ? (
                 <EmptyState>Loading your Supabase cookbook...</EmptyState>
               ) : cookbook.length ? (
                 <SavedGrid>
